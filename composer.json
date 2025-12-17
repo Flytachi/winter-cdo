@@ -1,0 +1,29 @@
+{
+    "name": "flytachi/winter-cdo",
+    "type": "library",
+    "license": "MIT",
+    "version": "1.0.0",
+    "autoload": {
+        "psr-4": {
+            "Flytachi\\Winter\\Cdo\\": "src/"
+        }
+    },
+    "require": {
+        "php": ">=8.3",
+        "flytachi/winter-base": "^1.0",
+        "ext-pdo": "*"
+    },
+    "require-dev": {
+        "squizlabs/php_codesniffer": "@stable"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/flytachi/winter-cdo.git"
+    },
+    "authors": [
+        {
+            "name": "Flytachi",
+            "email": "jasur.rakhmatov03@gmail.com"
+        }
+    ]
+}
