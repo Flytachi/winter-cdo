@@ -12,7 +12,7 @@ trait EntityCallDbTrait
     /**
      * @return CDO
      */
-    final public static function entity(): CDO
+    final public static function instance(): CDO
     {
         return ConnectionPool::db(static::class);
     }

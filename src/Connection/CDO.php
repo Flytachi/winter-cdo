@@ -4,10 +4,10 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo\Connection;
 
+use Flytachi\Winter\Base\Log\LoggerRegistry;
 use PDO;
 use PDOException;
 use Psr\Log\LoggerInterface;
-use Flytachi\Winter\Base\LoggerRegistry;
 use Flytachi\Winter\Cdo\Qb;
 use Flytachi\Winter\Cdo\Config\Common\DbConfigInterface;
 
@@ -69,17 +69,17 @@ class CDO extends PDO
      * Create an entry in the database
      *
      * @param string $table table name in database
-     * @param object|array $model model or array data
+     * @param object|array $entity entity or array data
      *
      * @return mixed
      * @throws CDOException
      */
-    final public function insert(string $table, object|array $model): mixed
+    final public function insert(string $table, object|array $entity): mixed
     {
-        if (is_object($model)) {
-            $model = (array) $model;
+        if (is_object($entity)) {
+            $entity = (array) $entity;
         }
-        $data = $model;
+        $data = $entity;
         foreach ($data as $key => $value) {
             if (is_null($value)) {
                 unset($data[$key]);
@@ -89,7 +89,7 @@ class CDO extends PDO
         $val = ":" . implode(",:", array_keys($data));
 
         try {
-            $query = "INSERT INTO $table ($col) VALUES ($val) RETURNING " . array_key_first($model);
+            $query = "INSERT INTO $table ($col) VALUES ($val) RETURNING " . array_key_first($entity);
             self::$logger->debug('insert:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
@@ -142,19 +142,19 @@ class CDO extends PDO
      * Create an entries in the database
      *
      * @param string $table table name in database
-     * @param array<object|array> $models model or array data
+     * @param array<object|array> $entities entities or array data
      * @throws CDOException
      */
-    final public function insertGroup(string $table, object|array ...$models): void
+    final public function insertGroup(string $table, object|array ...$entities): void
     {
         $data = [];
         $prefix = 0;
         $val = '';
-        foreach ($models as $model) {
-            if (is_object($model)) {
-                $model = (array) $model;
+        foreach ($entities as $entity) {
+            if (is_object($entity)) {
+                $entity = (array) $entity;
             }
-            $items = $model;
+            $items = $entity;
             foreach ($items as $key => $value) {
                 if (is_null($value)) {
                     unset($items[$key]);
@@ -225,15 +225,15 @@ class CDO extends PDO
      * Update an entry in the database
      *
      * @param string $table table name in database
-     * @param object|array $model data
+     * @param object|array $entity data
      * @param Qb $qb QlObject
      *
      * @return int|string
      * @throws CDOException
      */
-    final public function update(string $table, object|array $model, Qb $qb): int|string
+    final public function update(string $table, object|array $entity, Qb $qb): int|string
     {
-        $data = (array) $model;
+        $data = (array) $entity;
         $set = "";
         foreach ($data as $key => $value) {
             $data[":S_$key"] = $value;
