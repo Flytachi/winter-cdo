@@ -1,5 +1,6 @@
 {
     "name": "flytachi/winter-cdo",
+    "description": "Winter framework cdo component",
     "type": "library",
     "license": "MIT",
     "version": "1.0.0",
