@@ -3,7 +3,6 @@
     "description": "Winter framework cdo component",
     "type": "library",
     "license": "MIT",
-    "version": "1.0.1",
     "autoload": {
         "psr-4": {
             "Flytachi\\Winter\\Cdo\\": "src/"
@@ -16,10 +15,6 @@
     },
     "require-dev": {
         "squizlabs/php_codesniffer": "@stable"
-    },
-    "repository": {
-        "type": "git",
-        "url": "https://github.com/flytachi/winter-cdo.git"
     },
     "authors": [
         {
