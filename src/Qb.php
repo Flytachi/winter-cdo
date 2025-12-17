@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo;
 
-use Flytachi\Winter\Base\Algorithm;
-
 /**
  * Class Qb
  *
