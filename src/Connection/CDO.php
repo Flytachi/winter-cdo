@@ -29,11 +29,9 @@ class CDO extends PDO
         self::$logger = LoggerRegistry::instance('CDO');
         try {
             parent::__construct($config->getDNS(), $config->getUsername(), $config->getPassword());
-            $this->SetAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
-            $this->SetAttribute(PDO::ATTR_EMULATE_PREPARES, false);
             $this->SetAttribute(PDO::ATTR_TIMEOUT, $timeout);
             $this->setAttribute(PDO::ATTR_PERSISTENT, $config->getPersistentStatus());
-            $this->applyDatabaseTimezone(date_default_timezone_get());
+            $this->applyDatabase();
 
             if ($debug) {
                 $this->SetAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
@@ -44,10 +42,30 @@ class CDO extends PDO
         }
     }
 
-    private function applyDatabaseTimezone(string $tz): void
+    private function applyDatabase(): void
     {
         $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
 
+        switch ($driver) {
+            case 'pgsql':
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+                break;
+            case 'mysql':
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+                break;
+            case 'oci':
+                // Oracle
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+                break;
+            default:
+                break;
+        }
+        $this->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
+        $this->applyDatabaseTimezone($driver, date_default_timezone_get());
+    }
+
+    private function applyDatabaseTimezone(mixed $driver, string $tz): void
+    {
         switch ($driver) {
             case 'pgsql':
                 $this->exec("SET TIMEZONE TO " . $this->quote($tz));
