@@ -53,7 +53,10 @@ class CDO extends PDO
                 $this->exec("SET TIMEZONE TO " . $this->quote($tz));
                 break;
             case 'mysql':
-                $this->exec("SET time_zone = " . $this->quote($tz));
+                $offset = timezoneToOffset($tz);
+                if ($offset !== null) {
+                    $this->exec("SET time_zone = " . $this->quote($tz));
+                }
                 break;
             case 'oci':
                 // Oracle
