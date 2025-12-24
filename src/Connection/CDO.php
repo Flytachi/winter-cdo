@@ -48,14 +48,14 @@ class CDO extends PDO
 
         switch ($driver) {
             case 'pgsql':
-                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
                 break;
             case 'mysql':
-                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
                 break;
             case 'oci':
                 // Oracle
-                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, false);
+                $this->setAttribute(PDO::ATTR_EMULATE_PREPARES, true);
                 break;
             default:
                 break;
