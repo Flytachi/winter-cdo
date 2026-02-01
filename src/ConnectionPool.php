@@ -22,7 +22,7 @@ final class ConnectionPool
         if (!array_key_exists($key, self::$dbConfig)) {
             /** @var DbConfigInterface $newDbConfig */
             $newDbConfig = new $className();
-            $newDbConfig->sepUp();
+            $newDbConfig->setUp();
             self::$dbConfig[$key] = $newDbConfig;
         }
         return self::$dbConfig[$key];

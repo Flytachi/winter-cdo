@@ -8,7 +8,7 @@ use Flytachi\Winter\Cdo\Connection\CDO;
 
 interface DbConfigInterface
 {
-    public function sepUp(): void;
+    public function setUp(): void;
     public function getDns(): string;
     public function getPersistentStatus(): bool;
     public function getDriver(): string;

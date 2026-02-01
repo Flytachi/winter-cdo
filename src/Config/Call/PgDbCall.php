@@ -38,7 +38,7 @@ final class PgDbCall extends BaseDbConfig
         return $this->schema;
     }
 
-    public function sepUp(): void
+    public function setUp(): void
     {
     }
 }

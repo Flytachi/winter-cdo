@@ -32,7 +32,7 @@ final class MySqlDbCall extends BaseDbConfig
         return 'mysql';
     }
 
-    public function sepUp(): void
+    public function setUp(): void
     {
     }
 }

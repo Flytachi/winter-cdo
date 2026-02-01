@@ -18,7 +18,7 @@ final class DbCall extends BaseDbConfig
     ) {
     }
 
-    final public function sepUp(): void
+    final public function setUp(): void
     {
     }
 
