@@ -23,6 +23,18 @@ class CDOStatement
         return $this->stmt->bindValue($parameter, $value, $data_type);
     }
 
+    public function bindTypedValue(string $parameter, mixed $value): bool
+    {
+        return match (gettype($value)) {
+            'NULL' => $this->bindValue($parameter, $value, PDO::PARAM_NULL),
+            'boolean' => $this->bindValue($parameter, $value, PDO::PARAM_BOOL),
+            'integer' => $this->bindValue($parameter, $value, PDO::PARAM_INT),
+            'array' => $this->bindValue($parameter, json_encode($value)),
+            'object' => $this->bindValue($parameter, serialize($value)),
+            default => $this->bindValue($parameter, $value),
+        };
+    }
+
     public function getBindings(): array
     {
         return $this->bindings;

@@ -26,6 +26,27 @@ final class Qb
         $this->cache = $cache;
     }
 
+    public function addAnd(Qb $qb): void
+    {
+        $this->add($qb, 'AND');
+    }
+
+    public function addOr(Qb $qb): void
+    {
+        $this->add($qb, 'OR');
+    }
+
+    public function addXor(Qb $qb): void
+    {
+        $this->add($qb, 'XOR');
+    }
+
+    private function add(Qb $qb, string $operator): void
+    {
+        $this->query .= (empty($this->query) ? '' : " $operator ") . $qb->query;
+        $this->cache = array_merge($this->cache, $qb->cache);
+    }
+
     /**
      * Returns the prepared SQL condition query and the cache.
      *
