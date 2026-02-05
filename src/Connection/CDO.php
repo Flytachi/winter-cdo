@@ -210,7 +210,9 @@ class CDO extends PDO
      * Inserts a new record, or updates existing one if conflict occurs.
      * Uses ON CONFLICT for PostgreSQL and ON DUPLICATE KEY UPDATE for MySQL/MariaDB.
      *
-     * Use `:new` placeholder in expressions to reference the incoming value.
+     * Placeholders for expressions:
+     * - `:new` - new (incoming) value (PostgreSQL: EXCLUDED.column, MySQL: VALUES(column))
+     * - `:current` - current table value (PostgreSQL: table.column, MySQL: column)
      *
      * @param string $table Table name
      * @param object|array $entity Data to insert/update
@@ -232,7 +234,7 @@ class CDO extends PDO
      *     [
      *         'name' => ':new',
      *         'price' => ':new',
-     *         'stock' => 'stock + :new'
+     *         'stock' => ':current + :new'
      *     ]
      * );
      *
@@ -272,7 +274,7 @@ class CDO extends PDO
                     $query = "INSERT IGNORE INTO $table ($columns) VALUES ($placeholders)";
                 }
             } else {
-                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver);
+                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
                 if ($driver === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES ($placeholders) ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
                 } else {
@@ -421,22 +423,22 @@ class CDO extends PDO
      * - PostgreSQL: INSERT ... ON CONFLICT (...) DO UPDATE SET ...
      * - MySQL/MariaDB: INSERT ... ON DUPLICATE KEY UPDATE ...
      *
-     * ## The `:new` Placeholder
+     * ## Placeholders
      *
-     * Use `:new` in expressions to reference the incoming (new) value.
-     * It will be automatically replaced with the correct syntax:
-     * - PostgreSQL: EXCLUDED.column
-     * - MySQL: VALUES(column)
+     * | Placeholder | Description | PostgreSQL | MySQL |
+     * |-------------|-------------|------------|-------|
+     * | `:new` | New (incoming) value | `EXCLUDED.column` | `VALUES(column)` |
+     * | `:current` | Current table value | `table.column` | `column` |
      *
      * ## Expression Examples
      *
      * | Expression | Description | Result (PostgreSQL) |
      * |------------|-------------|---------------------|
      * | `:new` | Replace with new value | `EXCLUDED.column` |
-     * | `column + :new` | Add new to current | `column + EXCLUDED.column` |
-     * | `column - :new` | Subtract new from current | `column - EXCLUDED.column` |
-     * | `GREATEST(column, :new)` | Take maximum | `GREATEST(column, EXCLUDED.column)` |
-     * | `COALESCE(:new, column)` | New value or keep current | `COALESCE(EXCLUDED.column, column)` |
+     * | `:current + :new` | Add new to current | `table.column + EXCLUDED.column` |
+     * | `:current - :new` | Subtract new from current | `table.column - EXCLUDED.column` |
+     * | `GREATEST(:current, :new)` | Take maximum | `GREATEST(table.column, EXCLUDED.column)` |
+     * | `COALESCE(:new, :current)` | New value or keep current | `COALESCE(EXCLUDED.column, table.column)` |
      * | `NOW()` | SQL function (no placeholder) | `NOW()` |
      *
      * @param string $table Table name
@@ -480,7 +482,7 @@ class CDO extends PDO
      *     ['warehouse_id', 'product_id'],
      *     [
      *         'cost' => ':new',
-     *         'quantity' => 'quantity + :new',
+     *         'quantity' => ':current + :new',
      *         'updated_at' => 'NOW()'
      *     ]
      * );
@@ -493,8 +495,8 @@ class CDO extends PDO
      *     $products,
      *     ['sku'],
      *     [
-     *         'price' => 'LEAST(price, :new)',
-     *         'min_price_date' => 'CASE WHEN :new < price THEN NOW() ELSE min_price_date END'
+     *         'price' => 'LEAST(:current, :new)',
+     *         'min_price_date' => 'CASE WHEN :new < :current THEN NOW() ELSE min_price_date END'
      *     ]
      * );
      * ```
@@ -678,7 +680,7 @@ class CDO extends PDO
                 }
             } else {
                 // Update on conflict
-                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver);
+                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
                 if ($driver === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES $values ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
                 } else {
@@ -717,26 +719,28 @@ class CDO extends PDO
      * Build SET clause string for upsert query
      *
      * Use `:new` placeholder in expressions to reference the new (incoming) value.
-     * The placeholder will be replaced with database-specific syntax:
-     * - PostgreSQL: EXCLUDED.column
-     * - MySQL: VALUES(column)
+     * The placeholders will be replaced with database-specific syntax:
+     * - `:new` - new value (PostgreSQL: EXCLUDED.column, MySQL: VALUES(column))
+     * - `:current` - current table value (PostgreSQL: table.column, MySQL: column)
      *
      * @param array|null $updateColumns Columns with expressions ['column' => 'expression']
      *                                   Use `:new` to reference the new value
+     *                                   Use `:current` to reference the current table value
      * @param string $driver Database driver ('pgsql' or 'mysql')
+     * @param string $table Table name for qualifying column references
      *
      * @return string SET clause string
      *
      * Example:
      * ```
      * [
-     *     'cost' => ':new',               // cost = EXCLUDED.cost (replace with new value)
-     *     'quantity' => 'quantity + :new' // quantity = quantity + EXCLUDED.quantity (add to current)
-     *     'updated_at' => 'NOW()'         // updated_at = NOW() (use SQL function)
+     *     'cost' => ':new',                 // cost = EXCLUDED.cost (replace with new value)
+     *     'quantity' => ':current + :new',  // quantity = table.quantity + EXCLUDED.quantity (add to current)
+     *     'updated_at' => 'NOW()'           // updated_at = NOW() (use SQL function)
      * ]
      * ```
      */
-    private function buildUpdateSetString(?array $updateColumns, string $driver): string
+    private function buildUpdateSetString(?array $updateColumns, string $driver, string $table): string
     {
         if (empty($updateColumns)) {
             return '';
@@ -747,8 +751,10 @@ class CDO extends PDO
         foreach ($updateColumns as $column => $expression) {
             if ($driver === 'pgsql') {
                 $prefixedExpression = str_replace(':new', "EXCLUDED.$column", $expression);
+                $prefixedExpression = str_replace(':current', "$table.$column", $prefixedExpression);
             } else {
                 $prefixedExpression = str_replace(':new', "VALUES($column)", $expression);
+                $prefixedExpression = str_replace(':current', $column, $prefixedExpression);
             }
             $updateParts[] = "$column = $prefixedExpression";
         }

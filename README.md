@@ -130,22 +130,27 @@ $cdo->upsertGroup(
     ['warehouse_id', 'product_id'],
     [
         'cost' => ':new',
-        'quantity' => 'quantity + :new',
+        'quantity' => ':current + :new',
         'updated_at' => 'NOW()'
     ]
 );
 ```
 
-**The `:new` Placeholder**
+**Placeholders**
 
-Use `:new` to reference the new (incoming) value:
+| Placeholder | PostgreSQL | MySQL |
+|-------------|------------|-------|
+| `:new` | `EXCLUDED.column` | `VALUES(column)` |
+| `:current` | `table.column` | `column` |
+
+**Expression Examples**
 
 | Expression | Description |
 |------------|-------------|
 | `:new` | Replace with new value |
-| `column + :new` | Add to current value |
-| `GREATEST(column, :new)` | Take maximum |
-| `COALESCE(:new, column)` | New value or keep current |
+| `:current + :new` | Add to current value |
+| `GREATEST(:current, :new)` | Take maximum |
+| `COALESCE(:new, :current)` | New value or keep current |
 | `NOW()` | SQL function (no placeholder) |
 
 #### `update(string $table, object|array $entity, Qb $qb): int`
