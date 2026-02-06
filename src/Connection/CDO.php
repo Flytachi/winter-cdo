@@ -128,7 +128,7 @@ class CDO extends PDO
 
         try {
             $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
-            $primaryKey = array_key_first($entity);
+            $primaryKey = array_key_first((array) $entity);
 
             if ($driver === 'pgsql') {
                 $query = "INSERT INTO $table ($col) VALUES ($val) RETURNING $primaryKey";
@@ -261,7 +261,7 @@ class CDO extends PDO
 
         $columns = implode(",", array_keys($data));
         $placeholders = ":" . implode(",:", array_keys($data));
-        $primaryKey = array_key_first($entity);
+        $primaryKey = array_key_first((array) $entity);
 
         try {
             $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
