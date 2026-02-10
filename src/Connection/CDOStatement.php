@@ -30,7 +30,11 @@ class CDOStatement
             'boolean' => $this->bindValue($parameter, $value, PDO::PARAM_BOOL),
             'integer' => $this->bindValue($parameter, $value, PDO::PARAM_INT),
             'array' => $this->bindValue($parameter, json_encode($value)),
-            'object' => $this->bindValue($parameter, serialize($value)),
+            'object' => $this->bindValue($parameter,
+                $value instanceof \JsonSerializable
+                    ? $value->jsonSerialize()
+                    : json_encode($value)
+            ),
             default => $this->bindValue($parameter, $value),
         };
     }
