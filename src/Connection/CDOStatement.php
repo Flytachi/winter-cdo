@@ -30,13 +30,24 @@ class CDOStatement
             'boolean' => $this->bindValue($parameter, $value, PDO::PARAM_BOOL),
             'integer' => $this->bindValue($parameter, $value, PDO::PARAM_INT),
             'array' => $this->bindValue($parameter, json_encode($value)),
-            'object' => $this->bindValue($parameter,
-                $value instanceof \JsonSerializable
-                    ? $value->jsonSerialize()
-                    : json_encode($value)
-            ),
+            'object' => $this->bindValue($parameter, $this->valObject($value)),
             default => $this->bindValue($parameter, $value),
         };
+    }
+
+    public function valObject(object $value): mixed
+    {
+        if ($value instanceof \JsonSerializable) {
+            return $value->jsonSerialize();
+        } elseif ($value instanceof \Stringable) {
+            return (string) $value;
+        } elseif ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d H:i:s');
+        } elseif ($value instanceof \BackedEnum) {
+            return $value->value;
+        } else {
+            return serialize($value);
+        }
     }
 
     public function getBindings(): array
