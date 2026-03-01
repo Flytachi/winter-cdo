@@ -10,7 +10,7 @@ namespace Flytachi\Winter\Cdo;
  * `Qb` is a utility class that generates and holds SQL conditions.
  * It provides methods to build various SQL conditions and logical operators.
  *
- * @version 4.1
+ * @version 4.3
  * @author Flytachi
  */
 final class Qb
@@ -245,15 +245,25 @@ final class Qb
      * Note: Pattern matching using an SQL pattern. Returns 1 (TRUE)
      * or 0 (FALSE). If either expr or pat is NULL, the result is NULL.
      *
-     * @param string $column name of the column in the table
-     * @param string $value string value
+     * Case-insensitive mode ($insensitive = true):
+     *   - PostgreSQL: uses ILIKE operator (native support)
+     *   - MySQL:      NOT required — LIKE is case-insensitive by default
+     *                 for non-binary string columns. Using ILIKE will cause an error.
+     *   - Oracle:     NOT supported — use REGEXP_LIKE(column, value, 'i')
+     *                 or set NLS_COMP=LINGUISTIC and NLS_SORT=BINARY_CI at session level.
+     *
+     * @param string $column      Name of the column in the table
+     * @param string $value       String value to match against
+     * @param bool   $insensitive Use ILIKE instead of LIKE (PostgreSQL only)
      *
      * @return Qb
      */
-    public static function like(string $column, string $value): Qb
+    public static function like(string $column, string $value, bool $insensitive = false): Qb
     {
         $hash = self::inject($value);
-        return new self("{$column} LIKE {$hash}", [$hash => $value]);
+        return new self("{$column} "
+            . ($insensitive ? 'ILIKE' : 'LIKE')
+            . " {$hash}", [$hash => $value]);
     }
 
     /**
@@ -261,15 +271,25 @@ final class Qb
      *
      * Parsed: $column NOT LIKE $value
      *
-     * @param string $column name of the column in the table
-     * @param string $value string value
+     * Case-insensitive mode ($insensitive = true):
+     *   - PostgreSQL: uses NOT ILIKE operator (native support)
+     *   - MySQL:      NOT required — LIKE is case-insensitive by default
+     *                 for non-binary string columns. Using NOT ILIKE will cause an error.
+     *   - Oracle:     NOT supported — use NOT REGEXP_LIKE(column, value, 'i')
+     *                 or set NLS_COMP=LINGUISTIC and NLS_SORT=BINARY_CI at session level.
+     *
+     * @param string $column      Name of the column in the table
+     * @param string $value       String value to match against
+     * @param bool   $insensitive Use NOT ILIKE instead of NOT LIKE (PostgreSQL only)
      *
      * @return Qb
      */
-    public static function likeNot(string $column, string $value): Qb
+    public static function likeNot(string $column, string $value, bool $insensitive = false): Qb
     {
         $hash = self::inject($value);
-        return new self("{$column} NOT LIKE {$hash}", [$hash => $value]);
+        return new self("{$column} NOT "
+            . ($insensitive ? 'ILIKE' : 'LIKE')
+            . " {$hash}", [$hash => $value]);
     }
 
     /**
