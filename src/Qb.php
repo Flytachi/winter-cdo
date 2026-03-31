@@ -138,10 +138,15 @@ final class Qb
      * @param int|float|string $value The value to compare.
      * @return Qb
      */
-    public static function geq(string $column, int|float|string $value): Qb
+    public static function gte(string $column, int|float|string $value): Qb
     {
         $hash = self::inject($value);
         return new self("{$column} >= {$hash}", [$hash => $value]);
+    }
+
+    public static function geq(string $column, int|float|string $value): Qb
+    {
+        return self::gte($column, $value);
     }
 
     /**
@@ -164,10 +169,15 @@ final class Qb
      * @param int|float|string $value The value to compare.
      * @return Qb
      */
-    public static function leq(string $column, int|float|string $value): Qb
+    public static function lte(string $column, int|float|string $value): Qb
     {
         $hash = self::inject($value);
         return new self("{$column} <= {$hash}", [$hash => $value]);
+    }
+
+    public static function leq(string $column, int|float|string $value): Qb
+    {
+        return self::lte($column, $value);
     }
 
     /**
