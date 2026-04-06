@@ -5,37 +5,100 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo;
 
 /**
- * Class Qb
+ * Class Qb — Query Builder for SQL conditions
  *
- * `Qb` is a utility class that generates and holds SQL conditions.
- * It provides methods to build various SQL conditions and logical operators.
+ * Qb is an immutable condition builder that produces parameterised SQL fragments.
+ * Each static factory method returns a new Qb instance containing two things:
+ *   - a SQL string with named placeholders  (e.g. `age > :iqb0`)
+ *   - an array of {@see CDOBind} objects that map each placeholder to its value
  *
- * @version 4.3
- * @author Flytachi
+ * Instances are combined with logical operators ({@see Qb::and()}, {@see Qb::or()},
+ * {@see Qb::xor()}, {@see Qb::clip()}) or mutated in-place with
+ * {@see Qb::addAnd()}, {@see Qb::addOr()}, {@see Qb::addXor()}.
+ *
+ * **Named binds (CDOBind)**
+ * Every value method accepts a raw scalar *or* a pre-built {@see CDOBind}.
+ * Passing a CDOBind lets you reuse the same named placeholder across multiple
+ * conditions — both columns will share the same `:name` in the final SQL, so
+ * the value is bound exactly once.
+ *
+ * **Usage example**
+ * ```
+ * $condition = Qb::and(
+ *     Qb::eq('status', 'active'),
+ *     Qb::gte('age', 18),
+ *     Qb::like('name', '%john%'),
+ * );
+ * // SQL  : status = :iqb0 AND age >= :iqb1 AND name LIKE :iqb2
+ * // Binds: [:iqb0 => 'active', :iqb1 => 18, :iqb2 => '%john%']
+ * ```
+ *
+ * @version 5.0
+ * @author  Flytachi
  */
 final class Qb
 {
     private static int $placeholderCounter = 0;
-
     private string $query;
-    private array $cache;
+    /** @var CDOBind[] */
+    private array $binds;
 
-    private function __construct(string $query, array $cache)
+    /**
+     * @param string $query
+     * @param CDOBind[] $binds
+     */
+    private function __construct(string $query, array $binds)
     {
         $this->query = $query;
-        $this->cache = $cache;
+        $this->binds = $binds;
     }
 
+    /**
+     * Appends another condition to this instance using AND (mutable).
+     *
+     * Mutates the current Qb in place.  Use {@see Qb::and()} for an
+     * immutable alternative that returns a new instance.
+     *
+     * ```
+     * $qb = Qb::eq('status', 'active');
+     * $qb->addAnd(Qb::gte('age', 18));
+     * // SQL: status = :iqb0 AND age >= :iqb1
+     * ```
+     *
+     * @param Qb $qb The condition to append.
+     */
     public function addAnd(Qb $qb): void
     {
         $this->add($qb, 'AND');
     }
 
+    /**
+     * Appends another condition to this instance using OR (mutable).
+     *
+     * Mutates the current Qb in place.  Use {@see Qb::or()} for an
+     * immutable alternative that returns a new instance.
+     *
+     * ```
+     * $qb = Qb::eq('role', 'admin');
+     * $qb->addOr(Qb::eq('role', 'moderator'));
+     * // SQL: role = :iqb0 OR role = :iqb1
+     * ```
+     *
+     * @param Qb $qb The condition to append.
+     */
     public function addOr(Qb $qb): void
     {
         $this->add($qb, 'OR');
     }
 
+    /**
+     * Appends another condition to this instance using XOR (mutable).
+     *
+     * Mutates the current Qb in place.  Use {@see Qb::xor()} for an
+     * immutable alternative that returns a new instance.
+     *
+     * @param Qb $qb The condition to append.
+     */
     public function addXor(Qb $qb): void
     {
         $this->add($qb, 'XOR');
@@ -44,24 +107,29 @@ final class Qb
     private function add(Qb $qb, string $operator): void
     {
         $this->query .= (empty($this->query) ? '' : " $operator ") . $qb->query;
-        $this->cache = array_merge($this->cache, $qb->cache);
+        $this->binds = array_merge($this->binds, $qb->binds);
     }
 
     /**
-     * Returns the prepared SQL condition query and the cache.
+     * Returns both the SQL fragment and the bind list as an associative array.
      *
-     * @return array
+     * Keys: `query` (string) and `binds` (CDOBind[]).
+     * Useful when you need to pass both pieces together to an internal helper.
+     *
+     * @return array{query: string, binds: CDOBind[]}
      */
     public function getData(): array
     {
         return [
             'query' => $this->query,
-            'cache' => $this->cache,
+            'binds' => $this->binds,
         ];
     }
 
     /**
-     * Returns the prepared SQL condition query.
+     * Returns the SQL fragment with named placeholders.
+     *
+     * Example output: `"status = :iqb0 AND age >= :iqb1"`
      *
      * @return string
      */
@@ -71,23 +139,47 @@ final class Qb
     }
 
     /**
-     * Returns the parameters that were constructed for the condition.
+     * Returns all bind parameters for this condition.
      *
+     * Each {@see CDOBind} holds a named placeholder (e.g. `:iqb0` or a custom
+     * name) and the value to be bound.  Pass these to `CDOStatement::bindTypedValue()`
+     * or iterate them when executing a prepared statement.
+     *
+     * @return CDOBind[]
+     */
+    public function getBinds(): array
+    {
+        return $this->binds;
+    }
+
+    /**
+     * @deprecated Use {@see getBinds()} instead. Always returns an empty array.
      * @return array
      */
     public function getCache(): array
     {
-        return $this->cache;
+        return [];
     }
 
     /**
-     * Equal to operator.
+     * Equal to operator — `column = value`
      *
-     * @param string $column The column name.
-     * @param bool|int|float|string|null $value The value to compare.
+     * Special cases:
+     *  - `null`  → `column IS NULL`
+     *  - `true`  → `column IS TRUE`
+     *  - `false` → `column IS FALSE`
+     *
+     * ```
+     * Qb::eq('status', 'active')   // status = :iqb0
+     * Qb::eq('deleted_at', null)   // deleted_at IS NULL
+     * Qb::eq('is_admin', true)     // is_admin IS TRUE
+     * ```
+     *
+     * @param string                              $column The column name.
+     * @param CDOBind|bool|int|float|string|null  $value  The value to compare.
      * @return Qb
      */
-    public static function eq(string $column, bool|int|float|string|null $value): Qb
+    public static function eq(string $column, CDOBind|bool|int|float|string|null $value): Qb
     {
         if ($value === null) {
             return self::isNull($column);
@@ -95,18 +187,28 @@ final class Qb
         if (is_bool($value)) {
             return new self("{$column} IS " . ($value ? 'TRUE' : 'FALSE'), []);
         }
-        $hash = self::inject($value);
-        return new self("{$column} = {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} = {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Not equal to operator.
+     * Not equal to operator — `column != value`
      *
-     * @param string $column The column name.
-     * @param bool|int|float|string|null $value The value to compare.
+     * Special cases:
+     *  - `null`  → `column IS NOT NULL`
+     *  - `true`  → `column IS NOT TRUE`
+     *  - `false` → `column IS NOT FALSE`
+     *
+     * ```
+     * Qb::neq('status', 'banned')  // status != :iqb0
+     * Qb::neq('deleted_at', null)  // deleted_at IS NOT NULL
+     * ```
+     *
+     * @param string                              $column The column name.
+     * @param CDOBind|bool|int|float|string|null  $value  The value to compare.
      * @return Qb
      */
-    public static function neq(string $column, bool|int|float|string|null $value): Qb
+    public static function neq(string $column, CDOBind|bool|int|float|string|null $value): Qb
     {
         if ($value === null) {
             return self::isNotNull($column);
@@ -114,87 +216,107 @@ final class Qb
         if (is_bool($value)) {
             return new self("{$column} IS NOT " . ($value ? 'TRUE' : 'FALSE'), []);
         }
-        $hash = self::inject($value);
-        return new self("{$column} != {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} != {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Greater than operator.
+     * Greater than operator — `column > value`
      *
-     * @param string $column The column name.
-     * @param int|float|string $value The value to compare.
+     * ```
+     * Qb::gt('price', 100)   // price > :iqb0
+     * Qb::gt('age', 17.5)    // age > :iqb0
+     * ```
+     *
+     * @param string                    $column The column name.
+     * @param CDOBind|int|float|string  $value  The value to compare.
      * @return Qb
      */
-    public static function gt(string $column, int|float|string $value): Qb
+    public static function gt(string $column, CDOBind|int|float|string $value): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} > {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} > {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Greater than or equal to operator.
+     * Greater than or equal to operator — `column >= value`
      *
-     * @param string $column The column name.
-     * @param int|float|string $value The value to compare.
+     * ```
+     * Qb::gte('score', 60)   // score >= :iqb0
+     * ```
+     *
+     * @param string                    $column The column name.
+     * @param CDOBind|int|float|string  $value  The value to compare.
      * @return Qb
      */
-    public static function gte(string $column, int|float|string $value): Qb
+    public static function gte(string $column, CDOBind|int|float|string $value): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} >= {$hash}", [$hash => $value]);
-    }
-
-    public static function geq(string $column, int|float|string $value): Qb
-    {
-        return self::gte($column, $value);
+        $bind = self::inject($value);
+        return new self("{$column} >= {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Less than operator.
+     * Less than operator — `column < value`
      *
-     * @param string $column The column name.
-     * @param int|float|string $value The value to compare.
+     * ```
+     * Qb::lt('stock', 10)   // stock < :iqb0
+     * ```
+     *
+     * @param string                    $column The column name.
+     * @param CDOBind|int|float|string  $value  The value to compare.
      * @return Qb
      */
-    public static function lt(string $column, int|float|string $value): Qb
+    public static function lt(string $column, CDOBind|int|float|string $value): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} < {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} < {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Less than or equal to the operator.
+     * Less than or equal to operator — `column <= value`
      *
-     * @param string $column The column name.
-     * @param int|float|string $value The value to compare.
+     * ```
+     * Qb::lte('age', 65)   // age <= :iqb0
+     * ```
+     *
+     * @param string                    $column The column name.
+     * @param CDOBind|int|float|string  $value  The value to compare.
      * @return Qb
      */
-    public static function lte(string $column, int|float|string $value): Qb
+    public static function lte(string $column, CDOBind|int|float|string $value): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} <= {$hash}", [$hash => $value]);
-    }
-
-    public static function leq(string $column, int|float|string $value): Qb
-    {
-        return self::lte($column, $value);
+        $bind = self::inject($value);
+        return new self("{$column} <= {$bind->getName()}", [$bind]);
     }
 
     /**
-     * NULL-safe equal to operator.
+     * NULL-safe equal to operator — `column <=> value`  (MySQL / MariaDB)
      *
-     * @param string $column The column name.
-     * @param int|float|string $value The value to compare.
+     * Works like `=` but treats NULL as a comparable value:
+     * `NULL <=> NULL` is TRUE, `1 <=> NULL` is FALSE (no error).
+     * Equivalent to `IS NOT DISTINCT FROM` in PostgreSQL / standard SQL.
+     *
+     * ```
+     * Qb::nsEq('deleted_at', null)   // deleted_at <=> :iqb0  (binds NULL)
+     * Qb::nsEq('score', 0)           // score <=> :iqb0
+     * ```
+     *
+     * @param string                    $column The column name.
+     * @param CDOBind|int|float|string  $value  The value to compare (NULL included via CDOBind).
      * @return Qb
      */
-    public static function nsEq(string $column, int|float|string $value): Qb
+    public static function nsEq(string $column, CDOBind|int|float|string $value): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} <=> {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} <=> {$bind->getName()}", [$bind]);
     }
 
     /**
-     * NULL value test.
+     * NULL value test — `column IS NULL`
+     *
+     * ```
+     * Qb::isNull('deleted_at')   // deleted_at IS NULL
+     * ```
      *
      * @param string $column The column name.
      * @return Qb
@@ -205,7 +327,11 @@ final class Qb
     }
 
     /**
-     * NOT NULL value test.
+     * NOT NULL value test — `column IS NOT NULL`
+     *
+     * ```
+     * Qb::isNotNull('email')   // email IS NOT NULL
+     * ```
      *
      * @param string $column The column name.
      * @return Qb
@@ -216,10 +342,21 @@ final class Qb
     }
 
     /**
-     * Whether a value is within a set of values.
+     * Set membership — `column IN (v1, v2, ...)`
+     *
+     * Returns an empty Qb (no condition) when `$values` is an empty array,
+     * so it is safe to pass dynamic lists without extra null-checks.
+     *
+     * ```
+     * Qb::in('status', ['active', 'pending'])
+     * // status IN (:iqb0, :iqb1)
+     *
+     * Qb::in('id', [1, 2, 3])
+     * // id IN (:iqb0, :iqb1, :iqb2)
+     * ```
      *
      * @param string $column The column name.
-     * @param array $values The list of values.
+     * @param array  $values The list of values.
      * @return Qb
      */
     public static function in(string $column, array $values): Qb
@@ -228,214 +365,276 @@ final class Qb
             return self::empty();
         }
         $data = self::prepareIn($values);
-        return new self("{$column} IN ({$data['query']})", $data['cache']);
+        return new self("{$column} IN ({$data['query']})", $data['binds']);
     }
 
     /**
-     * Whether a value is not within a set of values.
+     * Set exclusion — `column NOT IN (v1, v2, ...)`
+     *
+     * Returns an empty Qb when `$values` is empty (no condition applied).
+     *
+     * ```
+     * Qb::notIn('role', ['banned', 'suspended'])
+     * // role NOT IN (:iqb0, :iqb1)
+     * ```
      *
      * @param string $column The column name.
-     * @param array $values The list of values.
+     * @param array  $values The list of values.
      * @return Qb
      */
-    public static function inNot(string $column, array $values): Qb
+    public static function notIn(string $column, array $values): Qb
     {
         if (empty($values)) {
             return self::empty();
         }
         $data = self::prepareIn($values);
-        return new self("{$column} NOT IN ({$data['query']})", $data['cache']);
+        return new self("{$column} NOT IN ({$data['query']})", $data['binds']);
     }
 
     /**
-     * Simple pattern matching
+     * Pattern matching — `column LIKE value`
      *
-     * Parsed: $column LIKE $value
+     * Uses SQL wildcard patterns: `%` matches any sequence of characters,
+     * `_` matches any single character.
      *
-     * Note: Pattern matching using an SQL pattern. Returns 1 (TRUE)
-     * or 0 (FALSE). If either expr or pat is NULL, the result is NULL.
+     * ```
+     * Qb::like('name', '%john%')          // name LIKE :iqb0
+     * Qb::like('email', '%@gmail.com')    // email LIKE :iqb0
+     * Qb::like('name', '%john%', true)    // name ILIKE :iqb0  (PostgreSQL only)
+     * ```
      *
-     * Case-insensitive mode ($insensitive = true):
-     *   - PostgreSQL: uses ILIKE operator (native support)
-     *   - MySQL:      NOT required — LIKE is case-insensitive by default
-     *                 for non-binary string columns. Using ILIKE will cause an error.
-     *   - Oracle:     NOT supported — use REGEXP_LIKE(column, value, 'i')
-     *                 or set NLS_COMP=LINGUISTIC and NLS_SORT=BINARY_CI at session level.
+     * **Database compatibility for `$insensitive = true`:**
+     *  - PostgreSQL: uses `ILIKE` (native)
+     *  - MySQL:      `LIKE` is already case-insensitive for non-binary columns — do NOT set `true`
+     *  - Oracle:     not supported — use `REGEXP_LIKE(col, val, 'i')` manually
      *
-     * @param string $column      Name of the column in the table
-     * @param string $value       String value to match against
-     * @param bool   $insensitive Use ILIKE instead of LIKE (PostgreSQL only)
-     *
+     * @param string          $column      Column name.
+     * @param CDOBind|string  $value       Pattern to match (include `%` / `_` wildcards yourself).
+     * @param bool            $insensitive Use ILIKE instead of LIKE (PostgreSQL only).
      * @return Qb
      */
-    public static function like(string $column, string $value, bool $insensitive = false): Qb
+    public static function like(string $column, CDOBind|string $value, bool $insensitive = false): Qb
     {
-        $hash = self::inject($value);
+        $bind = self::inject($value);
         return new self("{$column} "
-            . ($insensitive ? 'ILIKE' : 'LIKE')
-            . " {$hash}", [$hash => $value]);
+            . ($insensitive ? 'ILIKE' : 'LIKE') . " {$bind->getName()}", [$bind]);
     }
 
     /**
-     * Negation of simple pattern matching
+     * Negated pattern matching — `column NOT LIKE value`
      *
-     * Parsed: $column NOT LIKE $value
+     * ```
+     * Qb::notLike('email', '%@spam.com')        // email NOT LIKE :iqb0
+     * Qb::notLike('name', 'bot_%', true)        // name NOT ILIKE :iqb0  (PostgreSQL)
+     * ```
      *
-     * Case-insensitive mode ($insensitive = true):
-     *   - PostgreSQL: uses NOT ILIKE operator (native support)
-     *   - MySQL:      NOT required — LIKE is case-insensitive by default
-     *                 for non-binary string columns. Using NOT ILIKE will cause an error.
-     *   - Oracle:     NOT supported — use NOT REGEXP_LIKE(column, value, 'i')
-     *                 or set NLS_COMP=LINGUISTIC and NLS_SORT=BINARY_CI at session level.
+     * **Database compatibility for `$insensitive = true`:**
+     *  - PostgreSQL: uses `NOT ILIKE` (native)
+     *  - MySQL:      do NOT set `true` — `NOT LIKE` is already case-insensitive for non-binary columns
+     *  - Oracle:     not supported — use `NOT REGEXP_LIKE(col, val, 'i')` manually
      *
-     * @param string $column      Name of the column in the table
-     * @param string $value       String value to match against
-     * @param bool   $insensitive Use NOT ILIKE instead of NOT LIKE (PostgreSQL only)
-     *
+     * @param string          $column      Column name.
+     * @param CDOBind|string  $value       Pattern to match (include `%` / `_` wildcards yourself).
+     * @param bool            $insensitive Use NOT ILIKE instead of NOT LIKE (PostgreSQL only).
      * @return Qb
      */
-    public static function likeNot(string $column, string $value, bool $insensitive = false): Qb
+    public static function notLike(string $column, CDOBind|string $value, bool $insensitive = false): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$column} NOT "
-            . ($insensitive ? 'ILIKE' : 'LIKE')
-            . " {$hash}", [$hash => $value]);
+        $bind = self::inject($value);
+        return new self("{$column} NOT " . ($insensitive ? 'ILIKE' : 'LIKE')
+            . " {$bind->getName()}", [$bind]);
     }
 
     /**
-     * BETWEEN operator
+     * Range check — `column BETWEEN min AND max`
      *
-     * Parsed: $column BETWEEN $valueMin AND $valueMax
+     * Both bounds are inclusive. Works with numbers, strings, and dates.
      *
-     * Note: The BETWEEN operator is used to select values within a range.
-     * The values can be numbers, text, or dates.
+     * ```
+     * Qb::between('age', 18, 65)
+     * // age BETWEEN :iqb0 AND :iqb1
      *
-     * @param string $column name of the column in the table
-     * @param int|float|string $valueMin - minimum value
-     * @param int|float|string $valueMax - maximum value
+     * Qb::between('created_at', '2024-01-01', '2024-12-31')
+     * // created_at BETWEEN :iqb0 AND :iqb1
+     * ```
      *
+     * @param string                    $column   Column name.
+     * @param CDOBind|int|float|string  $valueMin Lower bound (inclusive).
+     * @param CDOBind|int|float|string  $valueMax Upper bound (inclusive).
      * @return Qb
      */
-    public static function between(string $column, string|int|float $valueMin, string|int|float $valueMax): Qb
-    {
-        $hashMin = self::inject($valueMin);
-        $hashMax = self::inject($valueMax);
-        return new self("{$column} BETWEEN {$hashMin} AND {$hashMax}", [
-            $hashMin => $valueMin,
-            $hashMax => $valueMax,
-        ]);
+    public static function between(
+        string $column,
+        CDOBind|string|int|float $valueMin,
+        CDOBind|string|int|float $valueMax
+    ): Qb {
+        $bindMin = self::inject($valueMin);
+        $bindMax = self::inject($valueMax);
+        return new self(
+            "{$column} BETWEEN {$bindMin->getName()} AND {$bindMax->getName()}",
+            [$bindMin, $bindMax]
+        );
     }
 
     /**
-     * BETWEEN operator with column values
+     * Inverted range check (value between two columns) — `value BETWEEN col1 AND col2`
      *
-     * Parsed: $value BETWEEN $column1 AND $column2
+     * Useful when the range boundaries are stored in columns, not given as literals —
+     * e.g. checking whether a date falls within a validity window stored per-row.
      *
-     * Note: The BETWEEN operator is used to search for values that are within a specified range.
-     * The values can be numbers or dates.
+     * ```
+     * Qb::betweenBy('2024-06-01', 'valid_from', 'valid_to')
+     * // :iqb0 BETWEEN valid_from AND valid_to
+     * ```
      *
-     * @param string|int|float $value value to be compared
-     * @param string $column1 name of the first column in the table
-     * @param string $column2 name of the second column in the table
-     *
+     * @param CDOBind|string|int|float  $value   The scalar value to test.
+     * @param string                    $column1 Lower-bound column.
+     * @param string                    $column2 Upper-bound column.
      * @return Qb
      */
-    public static function betweenBy(string|int|float $value, string $column1, string $column2): Qb
+    public static function betweenBy(CDOBind|string|int|float $value, string $column1, string $column2): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$value} BETWEEN {$column1} AND {$column2}", [
-            $hash => $value,
-        ]);
+        $bind = self::inject($value);
+        return new self(
+            "{$bind->getName()} BETWEEN {$column1} AND {$column2}",
+            [$bind]
+        );
     }
 
     /**
-     * NOT between operator
+     * Negated range check — `column NOT BETWEEN min AND max`
      *
-     * Parsed: $column NOT BETWEEN $valueMin AND $valueMax
+     * True when `column` is strictly outside the [min, max] range.
      *
-     * Note: This operator returns true if the operand on the left
-     * is NOT within the range of the operands on the right.
+     * ```
+     * Qb::notBetween('price', 10, 50)
+     * // price NOT BETWEEN :iqb0 AND :iqb1
+     * ```
      *
-     * @param string $column name of the column in the table
-     * @param int|float|string $valueMin minimum value
-     * @param int|float|string $valueMax maximum value
-     *
+     * @param string                    $column   Column name.
+     * @param CDOBind|int|float|string  $valueMin Lower bound (inclusive).
+     * @param CDOBind|int|float|string  $valueMax Upper bound (inclusive).
      * @return Qb
      */
-    public static function betweenNot(string $column, string|int|float $valueMin, string|int|float $valueMax): Qb
-    {
-        $hashMin = self::inject($valueMin);
-        $hashMax = self::inject($valueMax);
-        return new self("{$column} NOT BETWEEN {$hashMin} AND {$hashMax}", [
-            $hashMin => $valueMin,
-            $hashMax => $valueMax,
-        ]);
+    public static function notBetween(
+        string $column,
+        CDOBind|string|int|float $valueMin,
+        CDOBind|string|int|float $valueMax
+    ): Qb {
+        $bindMin = self::inject($valueMin);
+        $bindMax = self::inject($valueMax);
+        return new self(
+            "{$column} NOT BETWEEN {$bindMin->getName()} AND {$bindMax->getName()}",
+            [$bindMin, $bindMax]
+        );
     }
 
     /**
-     * NOT-BETWEEN operator
+     * Inverted negated range check (value NOT between two columns) — `value NOT BETWEEN col1 AND col2`
      *
-     * Parsed: $value NOT BETWEEN $column1 AND $column2
+     * True when the scalar value falls *outside* the range defined by two columns.
      *
-     * Note: The NOT-BETWEEN operator checks whether a value is not within a specified range.
+     * ```
+     * Qb::notBetweenBy('2020-01-01', 'valid_from', 'valid_to')
+     * // :iqb0 NOT BETWEEN valid_from AND valid_to
+     * ```
      *
-     * @param string|int|float $value The value to check if not between the columns
-     * @param string $column1 The first column for the comparison
-     * @param string $column2 The second column for the comparison
-     *
+     * @param CDOBind|string|int|float  $value   The scalar value to test.
+     * @param string                    $column1 Lower-bound column.
+     * @param string                    $column2 Upper-bound column.
      * @return Qb
      */
-    public static function betweenNotBy(string|int|float $value, string $column1, string $column2): Qb
+    public static function notBetweenBy(CDOBind|string|int|float $value, string $column1, string $column2): Qb
     {
-        $hash = self::inject($value);
-        return new self("{$value} NOT BETWEEN {$column1} AND {$column2}", [
-            $hash => $value,
-        ]);
+        $bind = self::inject($value);
+        return new self(
+            "{$bind->getName()} NOT BETWEEN {$column1} AND {$column2}",
+            [$bind]
+        );
     }
 
     /**
-     * Logical AND operator.
+     * Logical AND — `cond1 AND cond2 AND ...`
      *
-     * @param Qb ...$conditions The conditions to combine.
+     * Null or empty conditions are silently skipped, so it is safe to pass
+     * optional filters that may produce an empty Qb.
+     *
+     * ```
+     * Qb::and(
+     *     Qb::eq('status', 'active'),
+     *     Qb::gte('age', 18),
+     * )
+     * // status = :iqb0 AND age >= :iqb1
+     * ```
+     *
+     * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
      * @return Qb
      */
     public static function and(?Qb ...$conditions): Qb
     {
         $data = self::logicalPrepare('AND', $conditions);
-        return new self($data['query'], $data['cache']);
+        return new self($data['query'], $data['binds']);
     }
 
     /**
-     * Logical OR operator.
+     * Logical OR — `cond1 OR cond2 OR ...`
      *
-     * @param Qb ...$conditions The conditions to combine.
+     * Null or empty conditions are silently skipped.
+     *
+     * ```
+     * Qb::or(
+     *     Qb::eq('role', 'admin'),
+     *     Qb::eq('role', 'moderator'),
+     * )
+     * // role = :iqb0 OR role = :iqb1
+     * ```
+     *
+     * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
      * @return Qb
      */
     public static function or(?Qb ...$conditions): Qb
     {
         $data = self::logicalPrepare('OR', $conditions);
-        return new self($data['query'], $data['cache']);
+        return new self($data['query'], $data['binds']);
     }
 
     /**
-     * Logical XOR operator.
+     * Logical XOR — `cond1 XOR cond2 XOR ...`
      *
-     * @param Qb ...$conditions The conditions to combine.
+     * True when an odd number of conditions are true.
+     * Supported natively in MySQL/MariaDB; may require emulation on other DBs.
+     *
+     * ```
+     * Qb::xor(Qb::eq('a', 1), Qb::eq('b', 2))
+     * // a = :iqb0 XOR b = :iqb1
+     * ```
+     *
+     * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
      * @return Qb
      */
     public static function xor(?Qb ...$conditions): Qb
     {
         $data = self::logicalPrepare('XOR', $conditions);
-        return new self($data['query'], $data['cache']);
+        return new self($data['query'], $data['binds']);
     }
 
     /**
-     * Custom operator CLIP
+     * Wraps a condition in parentheses — `(condition)`
      *
-     * Parsed: ($QlObject)
+     * Essential for controlling operator precedence when mixing AND and OR.
+     * An empty condition is returned as-is (no wrapping).
      *
-     * @param Qb $condition The condition to combine.
+     * ```
+     * Qb::and(
+     *     Qb::eq('status', 'active'),
+     *     Qb::clip(
+     *         Qb::or(Qb::eq('role', 'admin'), Qb::eq('role', 'moderator'))
+     *     ),
+     * )
+     * // status = :iqb0 AND (role = :iqb1 OR role = :iqb2)
+     * ```
      *
+     * @param Qb $condition The condition to wrap.
      * @return Qb
      */
     public static function clip(Qb $condition): Qb
@@ -443,20 +642,24 @@ final class Qb
         if (empty($condition->query)) {
             return $condition;
         } else {
-            return new self('(' . $condition->query . ')', $condition->cache);
+            return new self('(' . $condition->query . ')', $condition->binds);
         }
     }
 
     /**
-     * Custom script
+     * Raw SQL fragment — injected verbatim, **NO parameterisation**.
      *
-     * Warning: Attention be careful! SQL-injection
-     * protection will not work in this script
+     * Use only when no other Qb method fits (e.g. vendor-specific functions,
+     * subquery conditions, raw expressions).  The caller is **fully responsible**
+     * for sanitising the string — passing user input here opens SQL-injection.
      *
-     * @param string $query string
+     * ```
+     * Qb::custom('JSON_CONTAINS(tags, \'"php"\')')
+     * // JSON_CONTAINS(tags, '"php"')  — raw, no binds
+     * ```
      *
+     * @param string $query Raw SQL string (no placeholders, no binding).
      * @return Qb
-     * @internal This is for internal use or advanced scenarios only.
      */
     public static function custom(string $query): Qb
     {
@@ -464,7 +667,11 @@ final class Qb
     }
 
     /**
-     * Empty Ql
+     * Creates an empty (no-op) condition.
+     *
+     * Returned by `in()` / `notIn()` when passed an empty array.
+     * Empty conditions are silently ignored by `and()`, `or()`, `xor()`, and
+     * the mutable `addAnd()` / `addOr()` / `addXor()` methods.
      *
      * @return Qb
      */
@@ -474,44 +681,61 @@ final class Qb
     }
 
     /**
-     * CASE operator.
+     * CASE expression — `CASE WHEN ... THEN ... [ELSE ...] END`
      *
-     * Generates a SQL CASE expression.
+     * The keys of `$whenThenPairs` are raw SQL condition strings (no binding);
+     * the values are the result literals and **are parameterised** via CDOBind.
      *
-     * @param array $whenThenPairs An associative array of conditions and results (e.g., ['condition' => 'result']).
-     * @param string|null $else The default result if no conditions are met.
+     * ```
+     * Qb::case([
+     *     'score >= 90' => 'A',
+     *     'score >= 75' => 'B',
+     *     'score >= 60' => 'C',
+     * ], else: 'F')
+     * // CASE WHEN score >= 90 THEN :iqb0
+     * //      WHEN score >= 75 THEN :iqb1
+     * //      WHEN score >= 60 THEN :iqb2
+     * //      ELSE :iqb3 END
+     * ```
+     *
+     * @param array<string, string>  $whenThenPairs Keys = raw SQL conditions, values = result literals.
+     * @param string|null            $else          Default value when no condition matches.
      * @return Qb
      */
     public static function case(array $whenThenPairs, ?string $else = null): Qb
     {
         $query = 'CASE ';
-        $cache = [];
+        $binds = [];
 
         foreach ($whenThenPairs as $when => $then) {
-            $thenHash = self::inject($then);
-            $cache[$thenHash] = $then;
-            $query .= "WHEN {$when} THEN {$thenHash} ";
+            $thenBind = self::inject($then);
+            $binds[] = $thenBind;
+            $query .= "WHEN {$when} THEN {$thenBind->getName()} ";
         }
 
         if ($else !== null) {
-            $elseHash = self::inject($else);
-            $cache[$elseHash] = $else;
-            $query .= "ELSE {$elseHash} ";
+            $elseBind = self::inject($else);
+            $binds[] = $elseBind;
+            $query .= "ELSE {$elseBind->getName()} ";
         }
 
         $query .= 'END';
-        return new self($query, $cache);
+        return new self($query, $binds);
     }
 
     /**
      * Prepares a value for injection into the query.
      *
-     * @param string|int|float $value The value to inject.
-     * @return string
+     * @param CDOBind|string|int|float $value The value to inject.
+     * @return CDOBind
      */
-    private static function inject(string|int|float $value): string
+    private static function inject(CDOBind|string|int|float $value): CDOBind
     {
-        return ':iqb' . (self::$placeholderCounter++);
+        if ($value instanceof CDOBind) {
+            return $value;
+        } else {
+            return new CDOBind(':iqb' . (self::$placeholderCounter++), $value);
+        }
     }
 
     /**
@@ -522,18 +746,18 @@ final class Qb
      */
     private static function prepareIn(array $values): array
     {
-        $cache = [];
+        $binds = [];
         $placeholders = [];
 
         foreach ($values as $value) {
-            $hash = self::inject($value);
-            $placeholders[] = $hash;
-            $cache[$hash] = $value;
+            $bind = self::inject($value);
+            $placeholders[] = $bind->getName();
+            $binds[] = $bind;
         }
 
         return [
             'query' => implode(', ', $placeholders),
-            'cache' => $cache,
+            'binds' => $binds,
         ];
     }
 
@@ -547,19 +771,19 @@ final class Qb
     private static function logicalPrepare(string $operator, array $conditions): array
     {
         $queryParts = [];
-        $cache = [];
+        $binds = [];
 
         foreach ($conditions as $condition) {
             if ($condition == null || $condition->query === '') {
                 continue;
             }
             $queryParts[] = $condition->query;
-            $cache = array_merge($cache, $condition->cache);
+            $binds = array_merge($binds, $condition->binds);
         }
 
         return [
             'query' => implode(" {$operator} ", $queryParts),
-            'cache' => $cache,
+            'binds' => $binds,
         ];
     }
 }

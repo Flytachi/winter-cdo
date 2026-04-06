@@ -3,9 +3,23 @@
     "description": "Winter framework cdo component",
     "type": "library",
     "license": "MIT",
+    "homepage": "https://winterframe.net",
+    "scripts": {
+        "test": "vendor/bin/phpunit",
+        "test-detail": "vendor/bin/phpunit --testdox"
+    },
+    "support": {
+        "source": "https://github.com/flytachi/winter-cdo",
+        "docs": "https://winterframe.net/docs/cdo"
+    },
     "autoload": {
         "psr-4": {
             "Flytachi\\Winter\\Cdo\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Flytachi\\Winter\\Cdo\\Tests\\": "tests/"
         }
     },
     "require": {
@@ -14,6 +28,7 @@
         "ext-pdo": "*"
     },
     "require-dev": {
+        "phpunit/phpunit": "@stable",
         "squizlabs/php_codesniffer": "@stable"
     },
     "authors": [

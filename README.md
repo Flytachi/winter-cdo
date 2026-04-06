@@ -1,9 +1,14 @@
-# Winter CDO Component
+# Winter CDO
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/flytachi/winter-cdo.svg)](https://packagist.org/packages/flytachi/winter-cdo)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 
-CDO (Connection Data Object) — an extended PDO wrapper for convenient database operations.
+**CDO** (Connection Data Object) — an extended PDO wrapper for type-safe,
+parameterised database operations with a composable query builder.
+
+**Full documentation:** https://winterframe.net/docs/cdo
+
+---
 
 ## Requirements
 
@@ -20,286 +25,226 @@ composer require flytachi/winter-cdo
 ## Supported Databases
 
 | Database | insert | insertGroup | upsert | upsertGroup | update | delete |
-|----------|--------|-------------|--------|-------------|--------|--------|
+|----------|:------:|:-----------:|:------:|:-----------:|:------:|:------:|
 | PostgreSQL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| MySQL/MariaDB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| MySQL / MariaDB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Oracle | ⚠️ | ✅ | ❌ | ❌ | ✅ | ✅ |
+
+---
 
 ## Quick Start
 
-### 1. Create a Configuration
+### 1. Define a configuration
+
+Extend `MySqlDbConfig` or `PgDbConfig` and fill credentials in `setUp()`:
 
 ```php
 use Flytachi\Winter\Cdo\Config\PgDbConfig;
 
-class MyDbConfig extends PgDbConfig
+class AppDb extends PgDbConfig
 {
     public function setUp(): void
     {
-        $this->host = env('DB_HOST', 'localhost');
-        $this->port = (int) env('DB_PORT', 5432);
-        $this->database = env('DB_NAME', 'mydb');
+        $this->host     = env('DB_HOST', 'localhost');
+        $this->port     = (int) env('DB_PORT', 5432);
+        $this->database = env('DB_NAME', 'myapp');
         $this->username = env('DB_USER', 'postgres');
         $this->password = env('DB_PASS', '');
-        $this->schema = env('DB_SCHEMA', 'public');
     }
 }
 ```
 
-### 2. Get a Connection
+For a one-off connection without a dedicated class, use the inline `PgDbCall` /
+`MySqlDbCall` / `DbCall` constructors — see [Configuration docs](docs/01-configuration.md).
+
+### 2. Get a connection
 
 ```php
-use Flytachi\Winter\Cdo\ConnectionPool;
+// Via ConnectionPool (recommended):
+$cdo = ConnectionPool::db(AppDb::class);
 
-$cdo = ConnectionPool::db(MyDbConfig::class);
+// Via the static shortcut (same result):
+$cdo = AppDb::instance();
 ```
 
-### 3. Perform Operations
+### 3. Run operations
 
 ```php
 use Flytachi\Winter\Cdo\Qb;
 
-// Insert
+// Insert — returns the generated primary key:
 $id = $cdo->insert('users', [
-    'name' => 'John',
-    'email' => 'john@example.com'
+    'name'  => 'Alice',
+    'email' => 'alice@example.com',
 ]);
 
-// Update
-$affected = $cdo->update('users', ['name' => 'Jane'], Qb::eq('id', 1));
-
-// Delete
-$deleted = $cdo->delete('users', Qb::eq('id', 1));
-```
-
-## API Reference
-
-### CDO Methods
-
-#### `insert(string $table, object|array $entity): mixed`
-
-Insert a single record. Returns the inserted record ID.
-
-```php
-$userId = $cdo->insert('users', [
-    'name' => 'John',
-    'email' => 'john@example.com'
-]);
-```
-
-#### `insertGroup(string $table, array $entities, int $chunkSize = 1000): void`
-
-Batch insert with automatic chunking.
-
-```php
-$users = [
-    ['name' => 'John', 'email' => 'john@example.com'],
-    ['name' => 'Jane', 'email' => 'jane@example.com'],
-    // ... thousands of records
-];
-
-$cdo->insertGroup('users', $users);
-$cdo->insertGroup('users', $users, chunkSize: 500); // custom chunk size
-```
-
-#### `upsert(string $table, object|array $entity, array $conflictColumns, ?array $updateColumns = null): mixed`
-
-Insert or update a single record.
-
-```php
-// Insert or update
-$cdo->upsert(
-    'products',
-    ['sku' => 'ABC', 'name' => 'Product', 'price' => 100],
-    ['sku'],
-    ['name' => ':new', 'price' => ':new']
+// Update — returns affected row count:
+$cdo->update('users',
+    ['name' => 'Alice Smith'],
+    Qb::eq('id', $id)
 );
 
-// Insert only (ignore duplicates)
-$cdo->upsert('users', $user, ['email']);
+// Delete — returns deleted row count:
+$cdo->delete('users', Qb::eq('id', $id));
+
+// Batch insert:
+$cdo->insertGroup('users', $usersArray, chunkSize: 500);
+
+// Upsert (insert or update on conflict):
+$cdo->upsert('products',
+    ['sku' => 'ABC-001', 'price' => 9.99, 'stock' => 50],
+    conflictColumns: ['sku'],
+    updateColumns: ['price' => ':new', 'stock' => ':current + :new']
+);
 ```
 
-#### `upsertGroup(string $table, array $entities, array $conflictColumns, ?array $updateColumns = null, int $chunkSize = 500): void`
+---
 
-Batch upsert with automatic chunking.
+## Qb — Query Builder
+
+`Qb` builds safe, parameterised SQL `WHERE` fragments.  Every value is bound
+via a named placeholder — no string interpolation, no injection risk.
 
 ```php
-$cdo->upsertGroup(
-    'inventory',
-    $items,
-    ['warehouse_id', 'product_id'],
-    [
-        'cost' => ':new',
-        'quantity' => ':current + :new',
-        'updated_at' => 'NOW()'
+// Simple condition:
+Qb::eq('status', 'active')
+// → status = :iqb0
+
+// Compound condition:
+$where = Qb::and(
+    Qb::eq('status', 'active'),
+    Qb::gte('age', 18),
+    Qb::isNull('banned_at'),
+);
+// → status = :iqb0 AND age >= :iqb1 AND banned_at IS NULL
+```
+
+### Operator reference
+
+| Category | Methods | SQL result |
+|----------|---------|-----------|
+| Comparison | `eq`, `neq`, `gt`, `gte`, `lt`, `lte` | `col = :x`, `col != :x`, … |
+| NULL | `isNull`, `isNotNull` | `col IS NULL`, `col IS NOT NULL` |
+| NULL-safe | `nsEq` | `col <=> :x` (MySQL/MariaDB) |
+| Set | `in`, `notIn` | `col IN (:a, :b)`, `col NOT IN (…)` |
+| Pattern | `like`, `notLike` | `col LIKE :x`, `col NOT LIKE :x` |
+| Range | `between`, `notBetween` | `col BETWEEN :a AND :b` |
+| Range (inverted) | `betweenBy`, `notBetweenBy` | `:x BETWEEN col1 AND col2` |
+| Logical | `and`, `or`, `xor` | `a AND b`, `a OR b`, `a XOR b` |
+| Grouping | `clip` | `(condition)` |
+| CASE | `case` | `CASE WHEN … THEN … END` |
+| Raw | `custom` | verbatim SQL (no binding) |
+
+### Operator precedence — always use `clip` with mixed AND/OR
+
+```php
+// ❌ Wrong — SQL reads as (published AND role='editor') OR role='admin':
+Qb::and(
+    Qb::eq('published', true),
+    Qb::or(Qb::eq('role', 'editor'), Qb::eq('role', 'admin')),
+)
+
+// ✅ Correct — clip enforces the right grouping:
+Qb::and(
+    Qb::eq('published', true),
+    Qb::clip(
+        Qb::or(Qb::eq('role', 'editor'), Qb::eq('role', 'admin'))
+    ),
+)
+// → published IS TRUE AND (role = :iqb0 OR role = :iqb1)
+```
+
+### Dynamic filters
+
+```php
+// null conditions are silently skipped:
+$where = Qb::and(
+    Qb::eq('status', 'active'),
+    $minAge  !== null ? Qb::gte('age', $minAge)   : null,
+    $country !== null ? Qb::eq('country', $country) : null,
+    Qb::in('tag_id', $tagIds),   // skipped when $tagIds is []
+);
+```
+
+### Named binds — share one placeholder across conditions
+
+```php
+$uid = new CDOBind('uid', $currentUserId);
+
+$where = Qb::or(
+    Qb::eq('author_id',   $uid),
+    Qb::eq('reviewer_id', $uid),
+    Qb::eq('assignee_id', $uid),
+);
+// → author_id = :uid OR reviewer_id = :uid OR assignee_id = :uid
+```
+
+---
+
+## Upsert Placeholders
+
+| Token | PostgreSQL | MySQL / MariaDB |
+|-------|-----------|----------------|
+| `:new` | `EXCLUDED.column` | `VALUES(column)` |
+| `:current` | `table.column` | `column` |
+
+```php
+$cdo->upsertGroup('inventory', $items,
+    conflictColumns: ['warehouse_id', 'product_id'],
+    updateColumns: [
+        'cost'       => ':new',
+        'quantity'   => ':current + :new',
+        'updated_at' => 'NOW()',
     ]
 );
 ```
 
-**Placeholders**
+---
 
-| Placeholder | PostgreSQL | MySQL |
-|-------------|------------|-------|
-| `:new` | `EXCLUDED.column` | `VALUES(column)` |
-| `:current` | `table.column` | `column` |
+## Error Handling
 
-**Expression Examples**
-
-| Expression | Description |
-|------------|-------------|
-| `:new` | Replace with new value |
-| `:current + :new` | Add to current value |
-| `GREATEST(:current, :new)` | Take maximum |
-| `COALESCE(:new, :current)` | New value or keep current |
-| `NOW()` | SQL function (no placeholder) |
-
-#### `update(string $table, object|array $entity, Qb $qb): int`
-
-Update records by condition. Returns the number of affected rows.
+All failures throw `CDOException`, which wraps the original `PDOException` as
+its `$previous` cause (preserving SQLSTATE code and driver message):
 
 ```php
-$affected = $cdo->update(
-    'users',
-    ['status' => 'inactive'],
-    Qb::and(
-        Qb::lt('last_login', '2024-01-01'),
-        Qb::eq('status', 'active')
-    )
-);
-```
+use Flytachi\Winter\Cdo\Connection\CDOException;
 
-#### `delete(string $table, Qb $qb): int`
-
-Delete records by condition. Returns the number of deleted rows.
-
-```php
-$deleted = $cdo->delete('sessions', Qb::lt('expires_at', date('Y-m-d H:i:s')));
-```
-
-### Qb (Query Builder)
-
-WHERE condition generator with automatic SQL injection protection.
-
-#### Comparison Operators
-
-```php
-Qb::eq('status', 'active')     // status = ?
-Qb::neq('status', 'deleted')   // status != ?
-Qb::gt('age', 18)              // age > ?
-Qb::geq('age', 18)             // age >= ?
-Qb::lt('age', 65)              // age < ?
-Qb::leq('age', 65)             // age <= ?
-Qb::isNull('deleted_at')       // deleted_at IS NULL
-Qb::isNotNull('email')         // email IS NOT NULL
-```
-
-#### Set Operators
-
-```php
-Qb::in('status', ['active', 'pending'])      // status IN (?, ?)
-Qb::inNot('role', ['banned', 'suspended'])   // role NOT IN (?, ?)
-Qb::between('age', 18, 65)                   // age BETWEEN ? AND ?
-Qb::betweenNot('price', 100, 200)            // price NOT BETWEEN ? AND ?
-```
-
-#### Pattern Operators
-
-```php
-Qb::like('name', '%john%')      // name LIKE ?
-Qb::likeNot('email', '%spam%')  // email NOT LIKE ?
-```
-
-#### Logical Operators
-
-```php
-Qb::and($condition1, $condition2, ...)  // cond1 AND cond2 AND ...
-Qb::or($condition1, $condition2, ...)   // cond1 OR cond2 OR ...
-Qb::xor($condition1, $condition2, ...)  // cond1 XOR cond2 XOR ...
-Qb::clip($condition)                    // (condition)
-```
-
-#### Complex Example
-
-```php
-$qb = Qb::and(
-    Qb::eq('status', 'active'),
-    Qb::or(
-        Qb::clip(Qb::and(
-            Qb::eq('role', 'admin'),
-            Qb::geq('level', 5)
-        )),
-        Qb::clip(Qb::and(
-            Qb::eq('role', 'moderator'),
-            Qb::in('department', ['sales', 'support'])
-        ))
-    ),
-    Qb::isNotNull('email_verified_at')
-);
-
-// Result: status = ? AND ((role = ? AND level >= ?) OR (role = ? AND department IN (?, ?))) AND email_verified_at IS NOT NULL
-```
-
-### ConnectionPool
-
-Connection manager with caching.
-
-```php
-// Get connection (created once, then reused)
-$cdo = ConnectionPool::db(MyDbConfig::class);
-
-// Get config
-$config = ConnectionPool::getConfigDb(MyDbConfig::class);
-
-// Check connection
-$config->ping();        // bool
-$config->pingDetail();  // ['status' => bool, 'latency' => float, 'error' => ?string]
-
-// Reconnect
-$config->reconnect();
-```
-
-### Configurations
-
-#### PostgreSQL
-
-```php
-use Flytachi\Winter\Cdo\Config\PgDbConfig;
-
-class MyPgConfig extends PgDbConfig
-{
-    public function setUp(): void
-    {
-        $this->host = 'localhost';
-        $this->port = 5432;
-        $this->database = 'mydb';
-        $this->username = 'postgres';
-        $this->password = 'secret';
-        $this->schema = 'public';
-        $this->charset = 'UTF8';        // optional
-        $this->isPersistent = false;    // optional
-    }
+try {
+    $cdo->insert('users', $data);
+} catch (CDOException $e) {
+    $sqlstate = $e->getPrevious()?->getCode();  // e.g. "23505" (PG unique violation)
+    // handle or re-throw
 }
 ```
 
-#### MySQL / MariaDB
+---
 
-```php
-use Flytachi\Winter\Cdo\Config\MySqlDbConfig;
+## Documentation
 
-class MyMySqlConfig extends MySqlDbConfig
-{
-    public function setUp(): void
-    {
-        $this->host = 'localhost';
-        $this->port = 3306;
-        $this->database = 'mydb';
-        $this->username = 'root';
-        $this->password = 'secret';
-        $this->charset = 'utf8mb4';     // optional
-        $this->isPersistent = false;    // optional
-    }
-}
-```
+Full reference documentation is at **https://winterframe.net/docs/cdo**
+
+Local docs in [`docs/`](docs/):
+
+| File | Topic |
+|------|-------|
+| [01-configuration.md](docs/01-configuration.md) | Config classes, inline Call classes |
+| [02-connection-pool.md](docs/02-connection-pool.md) | ConnectionPool, health checks |
+| [03-cdo.md](docs/03-cdo.md) | All CDO DML methods |
+| [04-cdo-statement.md](docs/04-cdo-statement.md) | Type binding, object serialisation |
+| [05-exceptions.md](docs/05-exceptions.md) | CDOException, SQLSTATE reference |
+| [06-cdobind.md](docs/06-cdobind.md) | CDOBind — named parameters |
+| [07-comparison-operators.md](docs/07-comparison-operators.md) | eq, neq, gt, gte, lt, lte, nsEq |
+| [08-null-checks.md](docs/08-null-checks.md) | isNull, isNotNull |
+| [09-set-operators.md](docs/09-set-operators.md) | in, notIn |
+| [10-pattern-matching.md](docs/10-pattern-matching.md) | like, notLike |
+| [11-range-operators.md](docs/11-range-operators.md) | between, betweenBy, notBetween, notBetweenBy |
+| [12-logical-operators.md](docs/12-logical-operators.md) | and, or, xor, clip |
+| [13-mutable-methods.md](docs/13-mutable-methods.md) | addAnd, addOr, addXor |
+| [14-case-expression.md](docs/14-case-expression.md) | CASE WHEN … END |
+| [15-special.md](docs/15-special.md) | custom, empty |
+| [16-advanced-examples.md](docs/16-advanced-examples.md) | Real-world combinations |
+
+---
 
 ## License
 

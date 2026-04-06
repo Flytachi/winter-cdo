@@ -269,16 +269,19 @@ class CDO extends PDO
 
             if (empty($updateColumns)) {
                 if ($driver === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders) ON CONFLICT ($conflictColumnStr) DO NOTHING RETURNING $primaryKey";
+                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                        . " ON CONFLICT ($conflictColumnStr) DO NOTHING RETURNING $primaryKey";
                 } else {
                     $query = "INSERT IGNORE INTO $table ($columns) VALUES ($placeholders)";
                 }
             } else {
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
                 if ($driver === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders) ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
+                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                        . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
                 } else {
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders) ON DUPLICATE KEY UPDATE $updateColumnStr";
+                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                        . " ON DUPLICATE KEY UPDATE $updateColumnStr";
                 }
             }
 
@@ -352,7 +355,10 @@ class CDO extends PDO
             $this->logger->debug('update:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ([...$qb->getCache(), ...$data] as $keyVal => $paramVal) {
+            foreach ($qb->getBinds() as $bind) {
+                $stmt->bindTypedValue($bind->getName(), $bind->getValue());
+            }
+            foreach ($data as $keyVal => $paramVal) {
                 $stmt->bindTypedValue((string) $keyVal, $paramVal);
             }
             $stmt->getStmt()->execute();
@@ -402,8 +408,8 @@ class CDO extends PDO
             $this->logger->debug('delete:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ($qb->getCache() as $keyVal => $paramVal) {
-                $stmt->bindTypedValue($keyVal, $paramVal);
+            foreach ($qb->getBinds() as $bind) {
+                $stmt->bindTypedValue($bind->getName(), $bind->getValue());
             }
             $stmt->getStmt()->execute();
             return $stmt->getStmt()->rowCount();
@@ -682,7 +688,8 @@ class CDO extends PDO
                 // Update on conflict
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
                 if ($driver === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES $values ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
+                    $query = "INSERT INTO $table ($columns) VALUES $values"
+                        . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
                 } else {
                     $query = "INSERT INTO $table ($columns) VALUES $values ON DUPLICATE KEY UPDATE $updateColumnStr";
                 }
