@@ -1,8 +1,10 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Flytachi\Winter\Cdo;
 
-class CDOBind
+readonly class CDOBind
 {
     private string $name;
     private mixed $value;
