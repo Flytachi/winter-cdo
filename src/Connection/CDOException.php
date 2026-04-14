@@ -4,9 +4,6 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo\Connection;
 
-use Flytachi\Winter\Base\Exception\Exception;
-use Psr\Log\LogLevel;
-
 /**
  * CDOException — Database Operation Exception
  *
@@ -33,7 +30,6 @@ use Psr\Log\LogLevel;
  * @package Flytachi\Winter\Cdo\Connection
  * @author  Flytachi
  */
-class CDOException extends Exception
+class CDOException extends \RuntimeException
 {
-    protected string $logLevel = LogLevel::ALERT;
 }

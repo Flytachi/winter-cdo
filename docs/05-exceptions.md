@@ -8,8 +8,7 @@ sets the log level to `LogLevel::ALERT`.
 
 ```
 CDOException
-    └── extends Flytachi\Winter\Base\Exception\Exception
-            └── extends \RuntimeException
+    └── extends \RuntimeException
 ```
 
 ---
