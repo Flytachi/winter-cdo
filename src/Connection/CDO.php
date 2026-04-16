@@ -558,7 +558,7 @@ class CDO extends PDO
      * @param mixed $driver Database driver name
      * @param string $tz PHP timezone identifier
      */
-    private function applyDatabaseTimezone(mixed $driver, string $tz): void
+    public function applyDatabaseTimezone(mixed $driver, string $tz): void
     {
         switch ($driver) {
             case 'pgsql':
