@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
-use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
 
 /**
  * DbConfig — Generic Driver-Agnostic Configuration Base
@@ -31,7 +30,7 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  * }
  *
  * // Retrieve CDO:
- * $cdo = AppDb::instance();
+ * $cdo = ConnectionPool::db(AppDb::class);
  * ```
  *
  * @package Flytachi\Winter\Cdo\Config
@@ -39,8 +38,6 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  */
 abstract class DbConfig extends BaseDbConfig
 {
-    use EntityCallDbTrait;
-
     protected string $driver;
     protected string $host;
     protected int $port;

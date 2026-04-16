@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
-use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
 
 /**
  * MySqlDbConfig — MySQL / MariaDB Configuration Base
@@ -28,7 +27,7 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  *     }
  * }
  *
- * $cdo = AppDb::instance();
+ * $cdo = ConnectionPool::db(AppDb::class);
  * ```
  *
  * @package Flytachi\Winter\Cdo\Config
@@ -36,8 +35,6 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  */
 abstract class MySqlDbConfig extends BaseDbConfig
 {
-    use EntityCallDbTrait;
-
     protected string $host = 'localhost';
     protected int $port = 3306;
     protected string $database = '';

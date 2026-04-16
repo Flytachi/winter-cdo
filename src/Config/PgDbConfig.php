@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
-use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
 
 /**
  * PgDbConfig — PostgreSQL Configuration Base
@@ -33,7 +32,7 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  *     }
  * }
  *
- * $cdo = AppDb::instance();
+ * $cdo = ConnectionPool::db(AppDb::class);
  * ```
  *
  * @package Flytachi\Winter\Cdo\Config
@@ -41,8 +40,6 @@ use Flytachi\Winter\Cdo\Config\Common\EntityCallDbTrait;
  */
 abstract class PgDbConfig extends BaseDbConfig
 {
-    use EntityCallDbTrait;
-
     protected string $host = 'localhost';
     protected int $port = 5432;
     protected string $database = 'postgres';

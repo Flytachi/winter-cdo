@@ -102,22 +102,6 @@ foreach (ConnectionPool::showDbConfigs() as $config) {
 
 ---
 
-## `EntityCallDbTrait` Shortcut
-
-Config classes that use `EntityCallDbTrait` (all built-in base classes do)
-gain a `::instance()` static method that calls `ConnectionPool::db()` for you:
-
-```php
-// These two lines are equivalent:
-$cdo = ConnectionPool::db(AppDb::class);
-$cdo = AppDb::instance();
-```
-
-`AppDb::instance()` is the idiomatic way to get a connection in most
-application code — it reads cleanly and avoids repeating the class name as a string.
-
----
-
 ## Multiple Databases
 
 Register as many config classes as needed.  Each is cached independently:
@@ -127,9 +111,9 @@ class MainDb extends PgDbConfig { /* ... */ }
 class AnalyticsDb extends PgDbConfig { /* ... */ }
 class CacheDb extends MySqlDbConfig { /* ... */ }
 
-$main      = MainDb::instance();
-$analytics = AnalyticsDb::instance();
-$cache     = CacheDb::instance();
+$main      = ConnectionPool::db(MainDb::class);
+$analytics = ConnectionPool::db(AnalyticsDb::class);
+$cache     = ConnectionPool::db(CacheDb::class);
 ```
 
 ---

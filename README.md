@@ -60,11 +60,7 @@ For a one-off connection without a dedicated class, use the inline `PgDbCall` /
 ### 2. Get a connection
 
 ```php
-// Via ConnectionPool (recommended):
 $cdo = ConnectionPool::db(AppDb::class);
-
-// Via the static shortcut (same result):
-$cdo = AppDb::instance();
 ```
 
 ### 3. Run operations

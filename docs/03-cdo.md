@@ -22,7 +22,6 @@ In practice you rarely construct `CDO` directly — obtain it through a config
 class or `ConnectionPool`:
 
 ```php
-$cdo = AppDb::instance();              // via EntityCallDbTrait
 $cdo = ConnectionPool::db(AppDb::class);
 ```
 

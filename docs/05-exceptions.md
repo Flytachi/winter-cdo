@@ -91,11 +91,11 @@ try {
 
 ```php
 try {
-    $result = MainDb::instance()->insert('events', $eventData);
+    $result = ConnectionPool::db(MainDb::class)->insert('events', $eventData);
 } catch (CDOException $e) {
     // Reconnect once and retry
     ConnectionPool::getConfigDb(MainDb::class)->reconnect();
-    $result = MainDb::instance()->insert('events', $eventData);
+    $result = ConnectionPool::db(MainDb::class)->insert('events', $eventData);
 }
 ```
 

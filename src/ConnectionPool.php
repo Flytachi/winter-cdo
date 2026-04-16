@@ -25,15 +25,6 @@ use Flytachi\Winter\Cdo\Connection\CDO;
  * $cdo->insert('users', $data);
  * ```
  *
- * Config classes that extend `DbConfig`, `MySqlDbConfig`, or `PgDbConfig`
- * gain a static `instance()` shortcut via {@see EntityCallDbTrait} which
- * delegates to this pool:
- *
- * ```
- * // Equivalent to ConnectionPool::db(MyDb::class):
- * MyDb::instance()->insert('users', $data);
- * ```
- *
  * @package Flytachi\Winter\Cdo
  * @author  Flytachi
  */
