@@ -31,6 +31,7 @@ The interface every config must satisfy:
 | `ping()` | Return `bool` — `SELECT 1` health check |
 | `pingDetail()` | Return `['status', 'latency', 'error']` array |
 | `getSchema()` | Return schema name or `null` (PostgreSQL) |
+| `getLogger()` | Return the PSR-3 logger (defaults to `NullLogger`) |
 
 ---
 
@@ -180,6 +181,33 @@ $config = new DbCall(
 );
 
 $cdo = $config->connection();
+```
+
+---
+
+## Logger
+
+All config classes accept an optional PSR-3 `LoggerInterface` via the constructor.
+When omitted, a `NullLogger` is used (no output).
+
+```php
+use Monolog\Logger;
+use Monolog\Handler\StreamHandler;
+
+$logger = new Logger('db');
+$logger->pushHandler(new StreamHandler('php://stdout'));
+
+// Config class:
+$config = new AppPgDb(logger: $logger);
+
+// Call class:
+$config = new PgDbCall(
+    host:     '127.0.0.1',
+    database: 'myapp',
+    username: 'postgres',
+    password: 'secret',
+    logger:   $logger,
+);
 ```
 
 ---

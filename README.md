@@ -14,7 +14,7 @@ parameterised database operations with a composable query builder.
 
 - PHP >= 8.3
 - ext-pdo
-- flytachi/winter-base ^1.0
+- psr/log ^3.0
 
 ## Installation
 

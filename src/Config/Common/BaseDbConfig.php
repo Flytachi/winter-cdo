@@ -6,6 +6,8 @@ namespace Flytachi\Winter\Cdo\Config\Common;
 
 use Flytachi\Winter\Cdo\Connection\CDO;
 use Flytachi\Winter\Cdo\Connection\CDOException;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * BaseDbConfig — Abstract Database Configuration Base
@@ -32,6 +34,14 @@ abstract class BaseDbConfig implements DbConfigInterface
 
     /** @var bool Whether to use PDO persistent connections. */
     protected bool $isPersistent = false;
+
+    /**
+     * @param LoggerInterface $logger
+     */
+    public function __construct(
+        protected LoggerInterface $logger = new NullLogger()
+    ) {
+    }
 
     public function getDns(): string
     {
@@ -69,7 +79,7 @@ abstract class BaseDbConfig implements DbConfigInterface
     final public function connect(int $timeout = 3): void
     {
         if (is_null($this->cdo)) {
-            $this->cdo = new CDO($this, $timeout, (bool) env('DEBUG', false));
+            $this->cdo = new CDO($this, $timeout, (bool) ($_ENV['DEBUG'] ?? false));
         }
     }
 
@@ -162,5 +172,17 @@ abstract class BaseDbConfig implements DbConfigInterface
     public function getSchema(): ?string
     {
         return null;
+    }
+
+    /**
+     * Returns the PSR-3 logger attached to this config.
+     *
+     * Defaults to {@see NullLogger} when no logger is provided.
+     *
+     * @return LoggerInterface
+     */
+    public function getLogger(): LoggerInterface
+    {
+        return $this->logger;
     }
 }

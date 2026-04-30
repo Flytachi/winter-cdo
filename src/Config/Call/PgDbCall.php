@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config\Call;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
+use Psr\Log\LoggerInterface;
+use Psr\Log\NullLogger;
 
 /**
  * PgDbCall — Inline PostgreSQL Configuration
@@ -47,8 +49,10 @@ final class PgDbCall extends BaseDbConfig
         public string $username = 'postgres',
         public string $password = '',
         public string $schema = 'public',
-        public ?string $charset = null
+        public ?string $charset = null,
+        LoggerInterface $logger = new NullLogger()
     ) {
+        $this->logger = $logger;
     }
 
     public function getDns(): string

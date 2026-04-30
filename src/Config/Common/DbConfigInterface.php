@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config\Common;
 
 use Flytachi\Winter\Cdo\Connection\CDO;
+use Psr\Log\LoggerInterface;
 
 /**
  * DbConfigInterface — Database Configuration Contract
@@ -129,4 +130,14 @@ interface DbConfigInterface
      * @return string|null
      */
     public function getSchema(): ?string;
+
+    /**
+     * Returns the PSR-3 logger instance attached to this config.
+     *
+     * The logger is passed to {@see CDO} on connection and used to record
+     * query execution details.
+     *
+     * @return LoggerInterface
+     */
+    public function getLogger(): LoggerInterface;
 }

@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo\Connection;
 
-use Flytachi\Winter\Base\Log\LoggerRegistry;
 use PDO;
 use PDOException;
 use Psr\Log\LoggerInterface;
@@ -68,7 +67,7 @@ class CDO extends PDO
      */
     public function __construct(DbConfigInterface $config, int $timeout = 5, bool $debug = false)
     {
-        $this->logger = LoggerRegistry::instance('CDO');
+        $this->logger = $config->getLogger();
         try {
             parent::__construct($config->getDNS(), $config->getUsername(), $config->getPassword());
             $this->setAttribute(PDO::ATTR_TIMEOUT, $timeout);
