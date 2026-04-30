@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config\Call;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * DbCall — Inline Generic Database Configuration
@@ -48,9 +46,8 @@ final class DbCall extends BaseDbConfig
         public string $database,
         public string $username,
         public string $password,
-        LoggerInterface $logger = new NullLogger()
     ) {
-        $this->logger = $logger;
+        parent::__construct();
     }
 
     final public function setUp(): void

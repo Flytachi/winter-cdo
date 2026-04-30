@@ -140,4 +140,14 @@ interface DbConfigInterface
      * @return LoggerInterface
      */
     public function getLogger(): LoggerInterface;
+
+    /**
+     * Attaches a PSR-3 logger to this config.
+     *
+     * Call this after instantiation (or via {@see ConnectionPool::getConfigDb()})
+     * to replace the default {@see NullLogger}.
+     *
+     * @param LoggerInterface $logger
+     */
+    public function setLogger(LoggerInterface $logger): void;
 }

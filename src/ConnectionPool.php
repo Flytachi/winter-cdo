@@ -6,6 +6,7 @@ namespace Flytachi\Winter\Cdo;
 
 use Flytachi\Winter\Cdo\Config\Common\DbConfigInterface;
 use Flytachi\Winter\Cdo\Connection\CDO;
+use Psr\Log\LoggerInterface;
 
 /**
  * ConnectionPool — Config Registry and CDO Factory
@@ -36,19 +37,24 @@ final class ConnectionPool
     /**
      * Returns the initialised config instance for the given class.
      *
-     * On first call the class is instantiated and `setUp()` is invoked.
-     * Subsequent calls return the cached instance without re-initialisation.
+     * On first call the class is instantiated, `setUp()` is invoked, and the
+     * optional `$logger` (if provided) is attached via {@see DbConfigInterface::setLogger()}.
+     * Subsequent calls return the cached instance; `$logger` is ignored after first access.
      *
-     * @param string $className Fully-qualified name of a class implementing {@see DbConfigInterface}.
+     * @param string               $className Fully-qualified name of a class implementing {@see DbConfigInterface}.
+     * @param LoggerInterface|null $logger    Optional PSR-3 logger to attach on first instantiation.
      * @return DbConfigInterface
      */
-    public static function getConfigDb(string $className): DbConfigInterface
+    public static function getConfigDb(string $className, ?LoggerInterface $logger = null): DbConfigInterface
     {
         $key = base64_encode($className);
         if (!array_key_exists($key, self::$dbConfig)) {
             /** @var DbConfigInterface $newDbConfig */
             $newDbConfig = new $className();
             $newDbConfig->setUp();
+            if ($logger !== null) {
+                $newDbConfig->setLogger($logger);
+            }
             self::$dbConfig[$key] = $newDbConfig;
         }
         return self::$dbConfig[$key];

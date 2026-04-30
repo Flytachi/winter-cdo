@@ -5,8 +5,6 @@ declare(strict_types=1);
 namespace Flytachi\Winter\Cdo\Config\Call;
 
 use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
-use Psr\Log\LoggerInterface;
-use Psr\Log\NullLogger;
 
 /**
  * MySqlDbCall — Inline MySQL / MariaDB Configuration
@@ -47,9 +45,8 @@ final class MySqlDbCall extends BaseDbConfig
         public string $username = 'root',
         public string $password = '',
         public ?string $charset = null,
-        LoggerInterface $logger = new NullLogger()
     ) {
-        $this->logger = $logger;
+        parent::__construct();
     }
 
     public function getDns(): string

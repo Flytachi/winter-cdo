@@ -35,12 +35,12 @@ abstract class BaseDbConfig implements DbConfigInterface
     /** @var bool Whether to use PDO persistent connections. */
     protected bool $isPersistent = false;
 
-    /**
-     * @param LoggerInterface $logger
-     */
-    public function __construct(
-        protected LoggerInterface $logger = new NullLogger()
-    ) {
+    /** @var LoggerInterface PSR-3 logger; defaults to NullLogger until overridden via {@see setLogger()}. */
+    protected LoggerInterface $logger;
+
+    public function __construct()
+    {
+        $this->logger = new NullLogger();
     }
 
     public function getDns(): string
@@ -177,12 +177,22 @@ abstract class BaseDbConfig implements DbConfigInterface
     /**
      * Returns the PSR-3 logger attached to this config.
      *
-     * Defaults to {@see NullLogger} when no logger is provided.
-     *
      * @return LoggerInterface
      */
     public function getLogger(): LoggerInterface
     {
         return $this->logger;
+    }
+
+    /**
+     * Replaces the current logger.
+     *
+     * Must be called before {@see connect()} for the logger to be passed to {@see CDO}.
+     *
+     * @param LoggerInterface $logger
+     */
+    public function setLogger(LoggerInterface $logger): void
+    {
+        $this->logger = $logger;
     }
 }

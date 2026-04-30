@@ -62,14 +62,20 @@ Under the hood:
 ## `getConfigDb` — Get the Config Instance
 
 ```php
-public static function getConfigDb(string $className): DbConfigInterface
+public static function getConfigDb(string $className, ?LoggerInterface $logger = null): DbConfigInterface
 ```
 
 Returns the initialised config object.  Useful when you need access to config
 metadata (schema name, ping, etc.) rather than the connection itself.
 
+The optional `$logger` is attached via `setLogger()` on **first instantiation only** —
+subsequent calls for the same class return the cached instance and ignore `$logger`.
+
 ```php
 $config = ConnectionPool::getConfigDb(AppDb::class);
+
+// With a PSR-3 logger (injected on first access):
+$config = ConnectionPool::getConfigDb(AppDb::class, $myLogger);
 
 // Health check:
 $config->ping();

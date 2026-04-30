@@ -32,6 +32,7 @@ The interface every config must satisfy:
 | `pingDetail()` | Return `['status', 'latency', 'error']` array |
 | `getSchema()` | Return schema name or `null` (PostgreSQL) |
 | `getLogger()` | Return the PSR-3 logger (defaults to `NullLogger`) |
+| `setLogger(logger)` | Replace the attached PSR-3 logger |
 
 ---
 
@@ -187,8 +188,9 @@ $cdo = $config->connection();
 
 ## Logger
 
-All config classes accept an optional PSR-3 `LoggerInterface` via the constructor.
-When omitted, a `NullLogger` is used (no output).
+All config classes default to a `NullLogger` (no output).
+Attach a real PSR-3 logger via `setLogger()` before the first `connection()` call,
+or pass it directly to `ConnectionPool::getConfigDb()`.
 
 ```php
 use Monolog\Logger;
@@ -197,17 +199,22 @@ use Monolog\Handler\StreamHandler;
 $logger = new Logger('db');
 $logger->pushHandler(new StreamHandler('php://stdout'));
 
-// Config class:
-$config = new AppPgDb(logger: $logger);
+// Config class — direct instantiation:
+$config = new AppPgDb();
+$config->setLogger($logger);
+$cdo = $config->connection();
 
-// Call class:
+// Call class — direct instantiation:
 $config = new PgDbCall(
     host:     '127.0.0.1',
     database: 'myapp',
     username: 'postgres',
     password: 'secret',
-    logger:   $logger,
 );
+$config->setLogger($logger);
+
+// Via ConnectionPool (logger is injected on first instantiation):
+$config = ConnectionPool::getConfigDb(AppPgDb::class, $logger);
 ```
 
 ---

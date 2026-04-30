@@ -41,7 +41,7 @@ use Flytachi\Winter\Cdo\Config\Common\DbConfigInterface;
  *
  * @package Flytachi\Winter\Cdo\Connection
  * @author Flytachi
- * @version 2.0
+ * @version 2.5
  */
 class CDO extends PDO
 {
@@ -77,7 +77,6 @@ class CDO extends PDO
             if ($debug) {
                 $this->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
             }
-            $this->logger->debug('connection:' . $config->getDns());
         } catch (PDOException $e) {
             throw new CDOException($e->getMessage(), previous: $e);
         }
