@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo;
 
+use InvalidArgumentException;
+
 /**
  * Class Qb — Query Builder for SQL conditions
  *
@@ -362,7 +364,7 @@ final class Qb
     public static function in(string $column, array $values): Qb
     {
         if (empty($values)) {
-            return self::empty();
+            throw new InvalidArgumentException('Values cannot be empty for IN condition');
         }
         $data = self::prepareIn($values);
         return new self("{$column} IN ({$data['query']})", $data['binds']);
@@ -385,7 +387,7 @@ final class Qb
     public static function notIn(string $column, array $values): Qb
     {
         if (empty($values)) {
-            return self::empty();
+            throw new InvalidArgumentException('Values cannot be empty for NOT IN condition');
         }
         $data = self::prepareIn($values);
         return new self("{$column} NOT IN ({$data['query']})", $data['binds']);
