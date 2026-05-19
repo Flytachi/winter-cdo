@@ -197,11 +197,11 @@ class QbTest extends TestCase
         $this->assertSame(['active', 'pending'], $this->values($qb));
     }
 
-    public function testInWithEmptyArrayReturnsEmpty(): void
+    public function testInWithEmptyArrayThrows(): void
     {
-        $qb = Qb::in('id', []);
-        $this->assertSame('', $qb->getQuery());
-        $this->assertCount(0, $qb->getBinds());
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Values cannot be empty for IN condition');
+        Qb::in('id', []);
     }
 
     public function testNotIn(): void
@@ -211,10 +211,11 @@ class QbTest extends TestCase
         $this->assertSame(['banned', 'ghost'], $this->values($qb));
     }
 
-    public function testNotInWithEmptyArrayReturnsEmpty(): void
+    public function testNotInWithEmptyArrayThrows(): void
     {
-        $qb = Qb::notIn('id', []);
-        $this->assertSame('', $qb->getQuery());
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage('Values cannot be empty for NOT IN condition');
+        Qb::notIn('id', []);
     }
 
     public function testInWithSingleValue(): void
@@ -530,12 +531,12 @@ class QbTest extends TestCase
     {
         $status  = 'active';
         $minAge  = null;        // should be skipped
-        $tagIds  = [];          // should be skipped (empty in())
+        $tagIds  = [];          // should be skipped — caller must filter empty lists out of Qb::in()
 
         $qb = Qb::and(
             Qb::eq('status', $status),
             $minAge !== null ? Qb::gte('age', $minAge) : null,
-            Qb::in('tag_id', $tagIds),
+            !empty($tagIds) ? Qb::in('tag_id', $tagIds) : null,
         );
 
         // Only status condition should survive

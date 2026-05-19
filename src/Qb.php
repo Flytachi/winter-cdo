@@ -346,8 +346,8 @@ final class Qb
     /**
      * Set membership — `column IN (v1, v2, ...)`
      *
-     * Returns an empty Qb (no condition) when `$values` is an empty array,
-     * so it is safe to pass dynamic lists without extra null-checks.
+     * Throws InvalidArgumentException when `$values` is empty — callers must
+     * filter empty lists out of dynamic filters before calling.
      *
      * ```
      * Qb::in('status', ['active', 'pending'])
@@ -358,7 +358,7 @@ final class Qb
      * ```
      *
      * @param string $column The column name.
-     * @param array  $values The list of values.
+     * @param array  $values The list of values (must be non-empty).
      * @return Qb
      */
     public static function in(string $column, array $values): Qb
@@ -373,7 +373,8 @@ final class Qb
     /**
      * Set exclusion — `column NOT IN (v1, v2, ...)`
      *
-     * Returns an empty Qb when `$values` is empty (no condition applied).
+     * Throws InvalidArgumentException when `$values` is empty — callers must
+     * filter empty lists out of dynamic filters before calling.
      *
      * ```
      * Qb::notIn('role', ['banned', 'suspended'])
@@ -381,7 +382,7 @@ final class Qb
      * ```
      *
      * @param string $column The column name.
-     * @param array  $values The list of values.
+     * @param array  $values The list of values (must be non-empty).
      * @return Qb
      */
     public static function notIn(string $column, array $values): Qb

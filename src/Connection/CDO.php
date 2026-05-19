@@ -48,6 +48,19 @@ class CDO extends PDO
     private LoggerInterface $logger;
 
     /**
+     * Normalized database driver name, cached at construction time.
+     *
+     * Values: 'pgsql' | 'mysql' | 'mariadb' | 'oci'.
+     *
+     * PDO::ATTR_DRIVER_NAME returns 'mysql' for both MySQL and MariaDB, but they
+     * diverge in supported SQL — MariaDB ≥ 10.5 supports `INSERT ... RETURNING`,
+     * MySQL never does — so we detect the flavour from PDO::ATTR_SERVER_VERSION
+     * (e.g. "5.5.5-10.11.6-MariaDB" or "11.4.2-MariaDB"; MySQL never contains
+     * the "MariaDB" marker) and store 'mariadb' separately here.
+     */
+    private string $driverName = '';
+
+    /**
      * Create a new CDO connection
      *
      * Establishes database connection with automatic driver configuration,
@@ -80,6 +93,27 @@ class CDO extends PDO
         } catch (PDOException $e) {
             throw new CDOException($e->getMessage(), previous: $e);
         }
+    }
+
+    /**
+     * Get the normalized database driver name
+     *
+     * Unlike PDO::ATTR_DRIVER_NAME — which returns 'mysql' for both MySQL and
+     * MariaDB — this method distinguishes the two: MariaDB is detected from
+     * PDO::ATTR_SERVER_VERSION at construction time and returned as 'mariadb'.
+     *
+     * @return string One of: 'pgsql' | 'mysql' | 'mariadb' | 'oci'
+     *
+     * Example:
+     * ```
+     * if ($cdo->getDriverName() === 'mariadb') {
+     *     // MariaDB-specific behaviour (e.g. INSERT ... RETURNING)
+     * }
+     * ```
+     */
+    public function getDriverName(): string
+    {
+        return $this->driverName;
     }
 
     /**
@@ -125,35 +159,33 @@ class CDO extends PDO
         $val = ":" . implode(",:", array_keys($data));
 
         try {
-            $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
             $primaryKey = array_key_first((array) $entity);
+            $useReturning = $this->driverName === 'pgsql' || $this->driverName === 'mariadb';
 
-            if ($driver === 'pgsql') {
+            if ($useReturning) {
                 $query = "INSERT INTO $table ($col) VALUES ($val) RETURNING $primaryKey";
-                $this->logger->debug('insert:' . $query);
-
-                $stmt = new CDOStatement($this->prepare($query));
-                foreach ($data as $keyVal => $paramVal) {
-                    $stmt->bindTypedValue(':' . $keyVal, $paramVal);
-                }
-                $stmt->getStmt()->execute();
-                $result = $stmt->getStmt()->fetchColumn();
             } else {
                 $query = "INSERT INTO $table ($col) VALUES ($val)";
-                $this->logger->debug('insert:' . $query);
+            }
+            $this->logger->debug('insert:' . $query);
 
-                $stmt = new CDOStatement($this->prepare($query));
-                foreach ($data as $keyVal => $paramVal) {
-                    $stmt->bindTypedValue(':' . $keyVal, $paramVal);
-                }
-                $stmt->getStmt()->execute();
+            $stmt = new CDOStatement($this->prepare($query));
+            foreach ($data as $keyVal => $paramVal) {
+                $stmt->bindTypedValue(':' . $keyVal, $paramVal);
+            }
+            $stmt->getStmt()->execute();
+
+            if ($useReturning) {
+                $result = $stmt->getStmt()->fetchColumn();
+            } else {
                 $result = $this->lastInsertId();
             }
 
-            if (!$result) {
-                throw new CDOException('Error when creating a record in the database (' . $result . ')');
-            }
-            return $result;
+            // Genuine SQL errors surface through PDOException (caught below).
+            // A falsy $result here just means "no auto-generated id to return"
+            // — e.g. MySQL INSERT into a table without AUTO_INCREMENT, or one
+            // with an explicit value for the AUTO_INCREMENT column.
+            return $result ?: null;
         } catch (PDOException $ex) {
             throw new CDOException(
                 'Error when creating a record in the database (' . $ex->getMessage() . ')',
@@ -262,22 +294,23 @@ class CDO extends PDO
         $primaryKey = array_key_first((array) $entity);
 
         try {
-            $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
             $conflictColumnStr = implode(',', $conflictColumns);
 
             if (empty($updateColumns)) {
-                if ($driver === 'pgsql') {
+                if ($this->driverName === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
                         . " ON CONFLICT ($conflictColumnStr) DO NOTHING RETURNING $primaryKey";
                 } else {
+                    // MariaDB also disallows RETURNING with INSERT IGNORE, so fall through to lastInsertId().
                     $query = "INSERT IGNORE INTO $table ($columns) VALUES ($placeholders)";
                 }
             } else {
-                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
-                if ($driver === 'pgsql') {
+                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
+                if ($this->driverName === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
                         . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
                 } else {
+                    // MariaDB disallows RETURNING with ON DUPLICATE KEY UPDATE, so fall through to lastInsertId().
                     $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
                         . " ON DUPLICATE KEY UPDATE $updateColumnStr";
                 }
@@ -291,7 +324,7 @@ class CDO extends PDO
             }
             $stmt->getStmt()->execute();
 
-            if ($driver === 'pgsql') {
+            if ($this->driverName === 'pgsql') {
                 $result = $stmt->getStmt()->fetchColumn();
                 return $result ?: null;
             } else {
@@ -546,6 +579,15 @@ class CDO extends PDO
             default:
                 break;
         }
+
+        $this->driverName = $driver;
+        if ($driver === 'mysql') {
+            $version = (string) $this->getAttribute(PDO::ATTR_SERVER_VERSION);
+            if (stripos($version, 'MariaDB') !== false) {
+                $this->driverName = 'mariadb';
+            }
+        }
+
         $this->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $this->applyDatabaseTimezone($driver, date_default_timezone_get());
     }
@@ -672,20 +714,19 @@ class CDO extends PDO
         $values = rtrim($values, ',');
 
         try {
-            $driver = $this->getAttribute(PDO::ATTR_DRIVER_NAME);
             $conflictColumnStr = implode(',', $conflictColumns);
 
             if (empty($updateColumns)) {
                 // No update - just ignore conflicts
-                if ($driver === 'pgsql') {
+                if ($this->driverName === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES $values ON CONFLICT ($conflictColumnStr) DO NOTHING";
                 } else {
                     $query = "INSERT IGNORE INTO $table ($columns) VALUES $values";
                 }
             } else {
                 // Update on conflict
-                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $driver, $table);
-                if ($driver === 'pgsql') {
+                $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
+                if ($this->driverName === 'pgsql') {
                     $query = "INSERT INTO $table ($columns) VALUES $values"
                         . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
                 } else {
