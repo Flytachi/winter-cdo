@@ -1,73 +1,95 @@
-# Special Methods — `custom` and `empty`
+# Special Methods — `raw` and `empty`
 
 ---
 
-## `custom` — Raw SQL Fragment
+## `raw` — Raw SQL Fragment
 
 ```php
-public static function custom(string $query): Qb
+public static function raw(string $query, array $binds = []): Qb
 ```
 
-Inserts an arbitrary SQL string **verbatim** into the query, with **no
-parameterisation** and **no SQL-injection protection**.
+Inserts an arbitrary SQL string **verbatim** into the query. The query string
+itself is **not escaped or validated**, but values can be bound safely through
+the optional `$binds` argument using named placeholders.
 
-The resulting `Qb` contains the raw string as its query and an empty bind list.
+Without `$binds`, the resulting `Qb` contains the raw string as its query and an
+empty bind list.
 
 ```php
-Qb::custom('NOW()')
+Qb::raw('NOW()')
 // SQL:  NOW()
 // Bind: (none)
 
-Qb::custom('JSON_CONTAINS(tags, \'"php"\')')
+Qb::raw('JSON_CONTAINS(tags, \'"php"\')')
 // SQL:  JSON_CONTAINS(tags, '"php"')
 // Bind: (none)
 
-Qb::custom('ST_Distance(location, POINT(55.75, 37.62)) < 5000')
+Qb::raw('ST_Distance(location, POINT(55.75, 37.62)) < 5000')
 // SQL:  ST_Distance(location, POINT(55.75, 37.62)) < 5000
 // Bind: (none)
 ```
 
-### When to use `custom`
+### Binding values with `$binds`
 
-Use `custom` only when no standard `Qb` method covers the SQL construct you need:
+`$binds` accepts either shape — and a mix of both:
+
+- `name => value` pairs: `['tag' => '"php"']`
+- `CDOBind` objects: `[new CDOBind('tag', '"php"')]`
+
+String keys are turned into `CDOBind` automatically (the leading `:` is
+optional); existing `CDOBind` elements are used as-is.
+
+```php
+// Associative pairs:
+Qb::raw('JSON_CONTAINS(tags, :tag) AND views > :v', ['tag' => '"php"', 'v' => 100])
+// SQL:  JSON_CONTAINS(tags, :tag) AND views > :v
+// Bind: :tag => '"php"', :v => 100
+
+// CDOBind objects:
+Qb::raw('views > :v', [new CDOBind('v', 100)])
+// SQL:  views > :v
+// Bind: :v => 100
+
+// Mixed:
+Qb::raw('a = :x AND b = :y', ['x' => 1, new CDOBind('y', 2)])
+// SQL:  a = :x AND b = :y
+// Bind: :x => 1, :y => 2
+```
+
+These binds flow through `getBinds()` and merge automatically when the fragment
+is combined via `and()` / `or()` / `xor()` — exactly like any other `Qb`
+condition.
+
+### When to use `raw`
+
+Use `raw` only when no standard `Qb` method covers the SQL construct you need:
 
 - Vendor-specific functions (`JSON_CONTAINS`, `ST_Distance`, `tsquery`, …)
 - Window function expressions
 - Subquery conditions (though prefer composing via your ORM / CDO layer)
-- Any other raw expression where you control all values programmatically
+- Any other raw expression where you control the query structure programmatically
 
-### When NOT to use `custom`
+### When NOT to use `raw`
 
-Do not use `custom` to avoid writing a few extra `Qb::eq` calls.  The entire
-point of the builder is to parameterise values — bypassing it for convenience
-introduces risk.
+Do not use `raw` to avoid writing a few extra `Qb::eq` calls.  Even though
+`$binds` parameterises the *values*, the **query string is still raw** — the
+standard operators give you that safety for the whole expression.
 
 ### Security rule
 
-> **Never** interpolate user-supplied data into the string passed to `custom`.
+> **Never** interpolate user-supplied data into the query string passed to
+> `raw`. Dynamic values belong in `$binds`, referenced by a named placeholder.
 
 ```php
-// ✅ Safe — all values are known constants:
-Qb::custom("DATE_FORMAT(created_at, '%Y-%m') = '2024-06'")
+// ✅ Safe — value passed through $binds:
+Qb::raw("DATE_FORMAT(created_at, '%Y-%m') = :month", ['month' => $userMonth])
 
-// ❌ UNSAFE — user input injected directly:
+// ✅ Safe — static SQL with no dynamic parts:
+Qb::raw("DATE_FORMAT(created_at, '%Y-%m') = '2024-06'")
+
+// ❌ UNSAFE — user input injected into the query string:
 $month = $_GET['month'];   // e.g. "' OR 1=1 --"
-Qb::custom("DATE_FORMAT(created_at, '%Y-%m') = '{$month}'")  // SQL injection!
-```
-
-If you need to parameterise a value inside a vendor-specific function, combine
-`Qb::custom` for the expression with a manually bound parameter outside the
-builder, or use `CDOBind` and reference the placeholder name inside the string:
-
-```php
-// Manually construct the placeholder and bind it yourself:
-$bind = new CDOBind('month_val', '2024-06');
-
-// Reference the placeholder inside the raw string:
-$qb = Qb::custom("DATE_FORMAT(created_at, '%Y-%m') = {$bind->getName()}");
-
-// Pass the bind separately — custom() produces no binds on its own:
-// You will need to bind :month_val manually when executing.
+Qb::raw("DATE_FORMAT(created_at, '%Y-%m') = '{$month}'")  // SQL injection!
 ```
 
 ---

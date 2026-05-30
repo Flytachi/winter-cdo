@@ -45,7 +45,7 @@ Qb (Query Builder)
         ├── Logical:    and, or, xor, clip
         ├── Mutable:    addAnd, addOr, addXor
         ├── CASE:       case
-        └── Special:    custom, empty
+        └── Special:    raw, empty
 ```
 
 ---
@@ -75,5 +75,5 @@ Qb (Query Builder)
 | 12 | [12-logical-operators.md](12-logical-operators.md) | `and`, `or`, `xor`, `clip` — operator precedence |
 | 13 | [13-mutable-methods.md](13-mutable-methods.md) | `addAnd`, `addOr`, `addXor` — incremental condition building |
 | 14 | [14-case-expression.md](14-case-expression.md) | `case` — CASE WHEN … THEN … END |
-| 15 | [15-special.md](15-special.md) | `custom` (raw SQL), `empty` (no-op) |
+| 15 | [15-special.md](15-special.md) | `raw` (raw SQL), `empty` (no-op) |
 | 16 | [16-advanced-examples.md](16-advanced-examples.md) | Real-world combinations: e-commerce, RBAC, dynamic filters |

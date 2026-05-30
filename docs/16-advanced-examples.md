@@ -205,17 +205,18 @@ $tierExpr = Qb::case([
     'points >= 1000'  => 'Silver',
 ], else: 'Bronze');
 
-// To use the CASE as a column expression inside IN(), extract the query string:
+// Use the CASE as a column expression inside IN() — pass its binds straight
+// into raw() so everything stays on a single Qb instance:
 $condition = Qb::and(
     Qb::eq('is_active', true),
-    // Embed CASE inline — note: CASE binds must be collected separately
-    Qb::custom(
-        $tierExpr->getQuery() . " IN ('Gold', 'Platinum')"
+    Qb::raw(
+        $tierExpr->getQuery() . " IN ('Gold', 'Platinum')",
+        $tierExpr->getBinds(),
     ),
 );
 
-// The CASE binds are in $tierExpr->getBinds().
-// Combine them with the $condition->getBinds() when executing.
+// $condition->getBinds() now already contains the CASE binds — no manual
+// merging needed when executing.
 
 // Full SQL fragment:
 // is_active IS TRUE

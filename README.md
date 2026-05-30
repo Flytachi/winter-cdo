@@ -129,7 +129,7 @@ $where = Qb::and(
 | Logical | `and`, `or`, `xor` | `a AND b`, `a OR b`, `a XOR b` |
 | Grouping | `clip` | `(condition)` |
 | CASE | `case` | `CASE WHEN … THEN … END` |
-| Raw | `custom` | verbatim SQL (no binding) |
+| Raw | `raw` | verbatim SQL with optional binds |
 
 ### Operator precedence — always use `clip` with mixed AND/OR
 
@@ -237,7 +237,7 @@ Local docs in [`docs/`](docs/):
 | [12-logical-operators.md](docs/12-logical-operators.md) | and, or, xor, clip |
 | [13-mutable-methods.md](docs/13-mutable-methods.md) | addAnd, addOr, addXor |
 | [14-case-expression.md](docs/14-case-expression.md) | CASE WHEN … END |
-| [15-special.md](docs/15-special.md) | custom, empty |
+| [15-special.md](docs/15-special.md) | raw, empty |
 | [16-advanced-examples.md](docs/16-advanced-examples.md) | Real-world combinations |
 
 ---

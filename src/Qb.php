@@ -650,23 +650,57 @@ final class Qb
     }
 
     /**
-     * Raw SQL fragment — injected verbatim, **NO parameterisation**.
+     * Raw SQL fragment — injected verbatim, with **optional** parameterisation.
      *
      * Use only when no other Qb method fits (e.g. vendor-specific functions,
-     * subquery conditions, raw expressions).  The caller is **fully responsible**
-     * for sanitising the string — passing user input here opens SQL-injection.
+     * subquery conditions, raw expressions).  The **query string itself is not
+     * sanitised** — never interpolate user input into it (SQL-injection risk).
+     * Values, however, can and should be passed via `$binds` and referenced by
+     * named placeholders inside the query.
+     *
+     * `$binds` accepts either of two shapes (and a mix of both):
+     *  - {@see CDOBind} objects:      `[new CDOBind('tag', '"php"')]`
+     *  - `name => value` pairs:       `['tag' => '"php"']`
+     *
+     * String keys are turned into `CDOBind` automatically (the leading `:` is
+     * optional). Plain `CDOBind` elements are used as-is.
      *
      * ```
-     * Qb::custom('JSON_CONTAINS(tags, \'"php"\')')
+     * Qb::raw('JSON_CONTAINS(tags, \'"php"\')')
      * // JSON_CONTAINS(tags, '"php"')  — raw, no binds
+     *
+     * Qb::raw('JSON_CONTAINS(tags, :tag)', ['tag' => '"php"'])
+     * // JSON_CONTAINS(tags, :tag)     — :tag bound to '"php"'
+     *
+     * Qb::raw('views > :v', [new CDOBind('v', 100)])
+     * // views > :v                    — :v bound to 100
      * ```
      *
-     * @param string $query Raw SQL string (no placeholders, no binding).
+     * @param string                      $query Raw SQL string; may contain named placeholders.
+     * @param array<int|string, CDOBind|bool|int|float|string|null> $binds
+     *        Bind values: `CDOBind` objects and/or `name => value` pairs.
      * @return Qb
      */
-    public static function custom(string $query): Qb
+    public static function raw(string $query, array $binds = []): Qb
     {
-        return new self($query, []);
+        $normalized = [];
+        foreach ($binds as $key => $bind) {
+            $normalized[] = $bind instanceof CDOBind ? $bind : new CDOBind((string) $key, $bind);
+        }
+        return new self($query, $normalized);
+    }
+
+    /**
+     * @deprecated Use {@see Qb::raw()} instead. Kept as an alias for backward compatibility.
+     *
+     * @param string                      $query Raw SQL string; may contain named placeholders.
+     * @param array<int|string, CDOBind|bool|int|float|string|null> $binds
+     *        Bind values: `CDOBind` objects and/or `name => value` pairs.
+     * @return Qb
+     */
+    public static function custom(string $query, array $binds = []): Qb
+    {
+        return self::raw($query, $binds);
     }
 
     /**

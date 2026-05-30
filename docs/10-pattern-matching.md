@@ -81,7 +81,7 @@ The `$insensitive` parameter maps to `ILIKE` / `NOT ILIKE`, which is a
 |----------|-------------|---------------------|
 | **PostgreSQL** | Case-sensitive | Uses `ILIKE` — works correctly |
 | **MySQL / MariaDB** | Case-insensitive for non-binary columns | **Do not use** — `ILIKE` is a syntax error on MySQL |
-| **Oracle** | Case-sensitive | **Not supported** — use `REGEXP_LIKE(col, val, 'i')` manually via `Qb::custom()` |
+| **Oracle** | Case-sensitive | **Not supported** — use `REGEXP_LIKE(col, val, 'i')` manually via `Qb::raw()` |
 | **SQLite** | Case-insensitive for ASCII only | Not applicable |
 
 ### MySQL — explicit case-sensitive LIKE
@@ -91,8 +91,8 @@ a case-insensitive collation (which is the default).  If you need a
 **case-sensitive** match on MySQL, cast to a binary collation at the SQL level:
 
 ```php
-// Case-sensitive LIKE on MySQL via custom():
-Qb::custom("BINARY username LIKE '%Admin%'")
+// Case-sensitive LIKE on MySQL via raw():
+Qb::raw("BINARY username LIKE '%Admin%'")
 ```
 
 ---

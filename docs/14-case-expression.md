@@ -143,7 +143,7 @@ Qb::and(
 > Because `Qb::in` takes a column name string (not a `Qb`), you need to call
 > `getQuery()` to extract the SQL fragment and embed it.  This is an advanced
 > use case — in most scenarios you would select the `CASE` expression and
-> filter in application code, or use `Qb::custom()` for raw expressions.
+> filter in application code, or use `Qb::raw()` for raw expressions.
 
 ---
 

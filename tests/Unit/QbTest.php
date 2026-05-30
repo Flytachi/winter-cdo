@@ -484,13 +484,74 @@ class QbTest extends TestCase
         $this->assertSame(['positive'], $this->values($qb));
     }
 
-    // ─── custom ───────────────────────────────────────────────────────────
+    // ─── raw ──────────────────────────────────────────────────────────────
 
-    public function testCustomReturnsRawSql(): void
+    public function testRawReturnsRawSql(): void
     {
-        $qb = Qb::custom('JSON_CONTAINS(tags, \'"php"\')');
+        $qb = Qb::raw('JSON_CONTAINS(tags, \'"php"\')');
         $this->assertSame('JSON_CONTAINS(tags, \'"php"\')', $qb->getQuery());
         $this->assertCount(0, $qb->getBinds());
+    }
+
+    public function testRawWithAssocBinds(): void
+    {
+        $qb = Qb::raw('JSON_CONTAINS(tags, :tag) AND views > :v', ['tag' => '"php"', 'v' => 100]);
+
+        $this->assertSame('JSON_CONTAINS(tags, :tag) AND views > :v', $qb->getQuery());
+
+        $binds = $qb->getBinds();
+        $this->assertCount(2, $binds);
+        $this->assertSame(':tag', $binds[0]->getName());
+        $this->assertSame('"php"', $binds[0]->getValue());
+        $this->assertSame(':v', $binds[1]->getName());
+        $this->assertSame(100, $binds[1]->getValue());
+    }
+
+    public function testRawWithCdoBindObjects(): void
+    {
+        $qb = Qb::raw('a = :x', [new CDOBind('x', 5)]);
+
+        $binds = $qb->getBinds();
+        $this->assertCount(1, $binds);
+        $this->assertSame(':x', $binds[0]->getName());
+        $this->assertSame(5, $binds[0]->getValue());
+    }
+
+    public function testRawWithMixedBinds(): void
+    {
+        $qb = Qb::raw('a = :x AND b = :y', ['x' => 1, new CDOBind('y', 2)]);
+
+        $binds = $qb->getBinds();
+        $this->assertCount(2, $binds);
+        $this->assertSame(':x', $binds[0]->getName());
+        $this->assertSame(':y', $binds[1]->getName());
+    }
+
+    public function testRawBindsCombineWithOtherConditions(): void
+    {
+        $qb = Qb::and(
+            Qb::eq('status', 'active'),
+            Qb::raw('views > :v', ['v' => 10]),
+        );
+
+        $sql = $qb->getQuery();
+        $this->assertStringContainsString('views > :v', $sql);
+
+        $values = $this->values($qb);
+        $this->assertContains('active', $values);
+        $this->assertContains(10, $values);
+    }
+
+    public function testCustomIsDeprecatedAliasForRaw(): void
+    {
+        $qb = Qb::custom('JSON_CONTAINS(tags, :tag)', ['tag' => '"php"']);
+
+        $this->assertSame('JSON_CONTAINS(tags, :tag)', $qb->getQuery());
+
+        $binds = $qb->getBinds();
+        $this->assertCount(1, $binds);
+        $this->assertSame(':tag', $binds[0]->getName());
+        $this->assertSame('"php"', $binds[0]->getValue());
     }
 
     // ─── getCache (deprecated) ────────────────────────────────────────────
