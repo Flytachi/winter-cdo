@@ -155,23 +155,24 @@ class CDO extends PDO
                 unset($data[$key]);
             }
         }
-        $col = implode(",", array_keys($data));
-        $val = ":" . implode(",:", array_keys($data));
+        $row = $this->buildRow($data);
 
         try {
-            $primaryKey = array_key_first((array) $entity);
+            $tableQ = $this->quoteIdentifier($table);
+            $primaryKey = $this->quoteIdentifier((string) array_key_first((array) $entity));
             $useReturning = $this->driverName === 'pgsql' || $this->driverName === 'mariadb';
 
             if ($useReturning) {
-                $query = "INSERT INTO $table ($col) VALUES ($val) RETURNING $primaryKey";
+                $query = "INSERT INTO $tableQ ({$row['columns']}) VALUES ({$row['placeholders']})"
+                    . " RETURNING $primaryKey";
             } else {
-                $query = "INSERT INTO $table ($col) VALUES ($val)";
+                $query = "INSERT INTO $tableQ ({$row['columns']}) VALUES ({$row['placeholders']})";
             }
             $this->logger->debug('insert:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ($data as $keyVal => $paramVal) {
-                $stmt->bindTypedValue(':' . $keyVal, $paramVal);
+            foreach ($row['binds'] as $placeholder => $paramVal) {
+                $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
 
@@ -289,29 +290,31 @@ class CDO extends PDO
             }
         }
 
-        $columns = implode(",", array_keys($data));
-        $placeholders = ":" . implode(",:", array_keys($data));
-        $primaryKey = array_key_first((array) $entity);
+        $row = $this->buildRow($data);
+        $columns = $row['columns'];
+        $placeholders = $row['placeholders'];
 
         try {
-            $conflictColumnStr = implode(',', $conflictColumns);
+            $tableQ = $this->quoteIdentifier($table);
+            $primaryKey = $this->quoteIdentifier((string) array_key_first((array) $entity));
+            $conflictColumnStr = $this->quoteIdentifierList($conflictColumns);
 
             if (empty($updateColumns)) {
                 if ($this->driverName === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                    $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
                         . " ON CONFLICT ($conflictColumnStr) DO NOTHING RETURNING $primaryKey";
                 } else {
                     // MariaDB also disallows RETURNING with INSERT IGNORE, so fall through to lastInsertId().
-                    $query = "INSERT IGNORE INTO $table ($columns) VALUES ($placeholders)";
+                    $query = "INSERT IGNORE INTO $tableQ ($columns) VALUES ($placeholders)";
                 }
             } else {
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
                 if ($this->driverName === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                    $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
                         . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
                 } else {
                     // MariaDB disallows RETURNING with ON DUPLICATE KEY UPDATE, so fall through to lastInsertId().
-                    $query = "INSERT INTO $table ($columns) VALUES ($placeholders)"
+                    $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
                         . " ON DUPLICATE KEY UPDATE $updateColumnStr";
                 }
             }
@@ -319,8 +322,8 @@ class CDO extends PDO
             $this->logger->debug('upsert:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ($data as $keyVal => $paramVal) {
-                $stmt->bindTypedValue(':' . $keyVal, $paramVal);
+            foreach ($row['binds'] as $placeholder => $paramVal) {
+                $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
 
@@ -374,23 +377,26 @@ class CDO extends PDO
     final public function update(string $table, object|array $entity, Qb $qb): int
     {
         $data = is_object($entity) ? get_object_vars($entity) : $entity;
-        $set = "";
+        $setParts = [];
+        $binds = [];
+        $i = 0;
         foreach ($data as $key => $value) {
-            $data[":S_$key"] = $value;
-            unset($data[$key]);
-            $set .= ",$key=:S_$key";
+            $placeholder = ':set' . $i++;
+            $setParts[] = $this->quoteIdentifier((string) $key) . '=' . $placeholder;
+            $binds[$placeholder] = $value;
         }
 
         try {
-            $query = "UPDATE $table SET " . ltrim($set, ", ") . " WHERE " . $qb->getQuery();
+            $query = "UPDATE {$this->quoteIdentifier($table)} SET " . implode(',', $setParts)
+                . " WHERE " . $qb->getQuery();
             $this->logger->debug('update:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
             foreach ($qb->getBinds() as $bind) {
                 $stmt->bindTypedValue($bind->getName(), $bind->getValue());
             }
-            foreach ($data as $keyVal => $paramVal) {
-                $stmt->bindTypedValue((string) $keyVal, $paramVal);
+            foreach ($binds as $placeholder => $paramVal) {
+                $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
             return $stmt->getStmt()->rowCount();
@@ -435,7 +441,7 @@ class CDO extends PDO
     final public function delete(string $table, Qb $qb): int
     {
         try {
-            $query = "DELETE FROM $table WHERE " . $qb->getQuery();
+            $query = "DELETE FROM {$this->quoteIdentifier($table)} WHERE " . $qb->getQuery();
             $this->logger->debug('delete:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
@@ -560,6 +566,80 @@ class CDO extends PDO
     // ==================== Private Methods ====================
 
     /**
+     * Quote a SQL identifier (table or column name) for the active driver.
+     *
+     * Identifiers cannot be bound as parameters, so they are wrapped in the
+     * driver's quoting characters to neutralise SQL injection through table /
+     * column names. Dotted names are treated as qualified references and each
+     * segment is quoted individually (`schema.table` -> `"schema"."table"`).
+     * Any embedded quote character is doubled per SQL rules.
+     *
+     * - MySQL / MariaDB: backticks  (`col`)
+     * - PostgreSQL / Oracle: double quotes  ("col")
+     *
+     * Note: quoted identifiers are case-sensitive in PostgreSQL — pass names
+     * exactly as they exist in the schema.
+     *
+     * @param string $identifier Raw identifier, optionally dot-qualified.
+     * @return string Quoted identifier safe for interpolation.
+     */
+    private function quoteIdentifier(string $identifier): string
+    {
+        $quote = ($this->driverName === 'mysql' || $this->driverName === 'mariadb') ? '`' : '"';
+
+        $parts = array_map(
+            fn(string $part): string => $quote . str_replace($quote, $quote . $quote, $part) . $quote,
+            explode('.', $identifier)
+        );
+
+        return implode('.', $parts);
+    }
+
+    /**
+     * Quote a list of identifiers and join them with commas.
+     *
+     * @param array $identifiers List of raw identifiers.
+     * @return string Comma-separated list of quoted identifiers.
+     */
+    private function quoteIdentifierList(array $identifiers): string
+    {
+        return implode(',', array_map(
+            fn($identifier): string => $this->quoteIdentifier((string) $identifier),
+            $identifiers
+        ));
+    }
+
+    /**
+     * Build the column list, placeholder list and bound values for a single row.
+     *
+     * Placeholder names are positional (`:c0`, `:c1`, …) and never derived from
+     * column names, so a hostile column name cannot leak into the query through
+     * the placeholder. Column identifiers are quoted via {@see quoteIdentifier()}.
+     *
+     * @param array $row Column => value map (already NULL-filtered by the caller).
+     * @return array{columns: string, placeholders: string, binds: array<string, mixed>}
+     */
+    private function buildRow(array $row): array
+    {
+        $columns = [];
+        $placeholders = [];
+        $binds = [];
+        $i = 0;
+        foreach ($row as $column => $value) {
+            $placeholder = ':c' . $i++;
+            $columns[] = $this->quoteIdentifier((string) $column);
+            $placeholders[] = $placeholder;
+            $binds[$placeholder] = $value;
+        }
+
+        return [
+            'columns' => implode(',', $columns),
+            'placeholders' => implode(',', $placeholders),
+            'binds' => $binds,
+        ];
+    }
+
+    /**
      * Apply database-specific settings
      *
      * Configures PDO attributes based on driver type and sets timezone.
@@ -630,8 +710,8 @@ class CDO extends PDO
     private function insertChunk(string $table, array $entities): void
     {
         $data = [];
-        $prefix = 0;
-        $val = '';
+        $rowIndex = 0;
+        $tuples = [];
         $col = '';
 
         foreach ($entities as $entity) {
@@ -641,26 +721,25 @@ class CDO extends PDO
                     unset($items[$key]);
                 }
             }
-            $col = implode(",", array_keys($items));
-            $newKeys = array_map(fn($oldKey) => $oldKey . '_' . $prefix, array_keys($items));
-            $items = array_combine($newKeys, array_values($items));
-            foreach ($items as $key => $value) {
-                if (is_null($value)) {
-                    unset($items[$key]);
-                }
+            $col = $this->quoteIdentifierList(array_keys($items));
+            $placeholders = [];
+            $colIndex = 0;
+            foreach ($items as $value) {
+                $placeholder = ':r' . $rowIndex . '_c' . $colIndex++;
+                $placeholders[] = $placeholder;
+                $data[$placeholder] = $value;
             }
-            $val .= '(:' . implode(",:", array_keys($items)) . '),';
-            ++$prefix;
-            $data = array_merge($data, $items);
+            $tuples[] = '(' . implode(',', $placeholders) . ')';
+            ++$rowIndex;
         }
 
         try {
-            $query = "INSERT INTO $table ($col) VALUES " . rtrim($val, ',');
+            $query = "INSERT INTO {$this->quoteIdentifier($table)} ($col) VALUES " . implode(',', $tuples);
             $this->logger->debug('insert group:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ($data as $keyVal => $paramVal) {
-                $stmt->bindTypedValue(':' . $keyVal, $paramVal);
+            foreach ($data as $placeholder => $paramVal) {
+                $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
         } catch (PDOException $ex) {
@@ -688,9 +767,9 @@ class CDO extends PDO
         ?array $updateColumns
     ): void {
         $data = [];
-        $prefix = 0;
+        $rowIndex = 0;
         $columns = '';
-        $values = '';
+        $tuples = [];
 
         foreach ($entities as $entity) {
             $items = is_object($entity) ? get_object_vars($entity) : $entity;
@@ -699,46 +778,47 @@ class CDO extends PDO
                     unset($items[$key]);
                 }
             }
-            $columns = implode(",", array_keys($items));
-            $newKeys = array_map(fn($oldKey) => $oldKey . '_' . $prefix, array_keys($items));
-            $items = array_combine($newKeys, array_values($items));
-            foreach ($items as $key => $val) {
-                if (is_null($val)) {
-                    unset($items[$key]);
-                }
+            $columns = $this->quoteIdentifierList(array_keys($items));
+            $placeholders = [];
+            $colIndex = 0;
+            foreach ($items as $val) {
+                $placeholder = ':r' . $rowIndex . '_c' . $colIndex++;
+                $placeholders[] = $placeholder;
+                $data[$placeholder] = $val;
             }
-            $values .= '(:' . implode(",:", array_keys($items)) . '),';
-            ++$prefix;
-            $data = array_merge($data, $items);
+            $tuples[] = '(' . implode(',', $placeholders) . ')';
+            ++$rowIndex;
         }
-        $values = rtrim($values, ',');
+        $values = implode(',', $tuples);
 
         try {
-            $conflictColumnStr = implode(',', $conflictColumns);
+            $tableQ = $this->quoteIdentifier($table);
+            $conflictColumnStr = $this->quoteIdentifierList($conflictColumns);
 
             if (empty($updateColumns)) {
                 // No update - just ignore conflicts
                 if ($this->driverName === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES $values ON CONFLICT ($conflictColumnStr) DO NOTHING";
+                    $query = "INSERT INTO $tableQ ($columns) VALUES $values"
+                        . " ON CONFLICT ($conflictColumnStr) DO NOTHING";
                 } else {
-                    $query = "INSERT IGNORE INTO $table ($columns) VALUES $values";
+                    $query = "INSERT IGNORE INTO $tableQ ($columns) VALUES $values";
                 }
             } else {
                 // Update on conflict
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
                 if ($this->driverName === 'pgsql') {
-                    $query = "INSERT INTO $table ($columns) VALUES $values"
+                    $query = "INSERT INTO $tableQ ($columns) VALUES $values"
                         . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
                 } else {
-                    $query = "INSERT INTO $table ($columns) VALUES $values ON DUPLICATE KEY UPDATE $updateColumnStr";
+                    $query = "INSERT INTO $tableQ ($columns) VALUES $values ON DUPLICATE KEY UPDATE $updateColumnStr";
                 }
             }
 
             $this->logger->debug('insert or update group:' . $query);
 
             $stmt = new CDOStatement($this->prepare($query));
-            foreach ($data as $keyVal => $paramVal) {
-                $stmt->bindTypedValue(':' . $keyVal, $paramVal);
+            foreach ($data as $placeholder => $paramVal) {
+                $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
         } catch (PDOException $ex) {
@@ -795,14 +875,19 @@ class CDO extends PDO
         $updateParts = [];
 
         foreach ($updateColumns as $column => $expression) {
+            $quotedColumn = $this->quoteIdentifier((string) $column);
             if ($driver === 'pgsql') {
-                $prefixedExpression = str_replace(':new', "EXCLUDED.$column", $expression);
-                $prefixedExpression = str_replace(':current', "$table.$column", $prefixedExpression);
+                $prefixedExpression = str_replace(':new', "EXCLUDED.$quotedColumn", $expression);
+                $prefixedExpression = str_replace(
+                    ':current',
+                    $this->quoteIdentifier($table) . '.' . $quotedColumn,
+                    $prefixedExpression
+                );
             } else {
-                $prefixedExpression = str_replace(':new', "VALUES($column)", $expression);
-                $prefixedExpression = str_replace(':current', $column, $prefixedExpression);
+                $prefixedExpression = str_replace(':new', "VALUES($quotedColumn)", $expression);
+                $prefixedExpression = str_replace(':current', $quotedColumn, $prefixedExpression);
             }
-            $updateParts[] = "$column = $prefixedExpression";
+            $updateParts[] = "$quotedColumn = $prefixedExpression";
         }
 
         return implode(', ', $updateParts);
