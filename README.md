@@ -99,8 +99,12 @@ $cdo->upsert('products',
 
 ## Qb — Query Builder
 
-`Qb` builds safe, parameterised SQL `WHERE` fragments.  Every value is bound
+`Qb` builds safe, parameterised SQL `WHERE` fragments.  Every **value** is bound
 via a named placeholder — no string interpolation, no injection risk.
+
+> **Column names, however, are injected verbatim** (they cannot be bound).
+> Never pass user input as a column name: `Qb::eq('status', $userInput)` is safe,
+> `Qb::eq($userInput, 'active')` is a SQL-injection vector.
 
 ```php
 // Simple condition:

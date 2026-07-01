@@ -6,6 +6,17 @@ All comparison operators share the same contract:
 - Accept a **value** — either a scalar or a [`CDOBind`](01-cdobind.md)
 - Return a new `Qb` instance with the condition and its bind(s)
 
+> **Security — column names must be trusted identifiers**
+> Only the *value* is parameterised. The **column name is interpolated into the
+> SQL verbatim**, without quoting or escaping. Never pass user input as a column
+> name — that is a SQL-injection vector. User input belongs in the value
+> position, which is always bound.
+>
+> ```php
+> Qb::eq('status', $userInput)   // ✅ SAFE   — value is bound
+> Qb::eq($userInput, 'active')   // ❌ UNSAFE — column name injected raw
+> ```
+
 ---
 
 ## `eq` — Equal to

@@ -35,6 +35,18 @@ use InvalidArgumentException;
  * // Binds: [:iqb0 => 'active', :iqb1 => 18, :iqb2 => '%john%']
  * ```
  *
+ * **Security — column names must be trusted identifiers**
+ * Only *values* are parameterised. The `$column` argument of every method
+ * ({@see eq()}, {@see gt()}, {@see in()}, {@see like()}, {@see between()}, …)
+ * is interpolated into the SQL **verbatim, without quoting or escaping** — and
+ * so is the raw fragment of {@see raw()} and the WHEN conditions of {@see case()}.
+ * Never pass user input as a column name; that is a SQL-injection vector. User
+ * input belongs in the value position, which is always bound:
+ * ```
+ * Qb::eq('status', $userInput)   // SAFE   — value is bound
+ * Qb::eq($userInput, 'active')   // UNSAFE — column name injected raw
+ * ```
+ *
  * @version 5.0
  * @author  Flytachi
  */

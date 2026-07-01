@@ -36,6 +36,34 @@ connection cannot be established.
 
 ---
 
+## Identifier handling & safety
+
+Values are always bound as prepared-statement parameters. **Identifiers**
+(table names, column names) cannot be bound, so CDO **quotes them** with the
+driver's quoting characters before building the query:
+
+- PostgreSQL / Oracle: double quotes — `"users"."email"`
+- MySQL / MariaDB: backticks — `` `users`.`email` ``
+
+Dot-qualified names are treated as `schema.table` and each segment is quoted
+individually. This neutralises SQL injection through table/column names, so the
+DML methods below are safe even if a name is built dynamically.
+
+> **PostgreSQL is case-sensitive for quoted identifiers.** Because CDO quotes
+> every identifier, you must pass names **exactly as they exist in the schema**.
+> A table created as `users` must be referenced as `users`, not `Users` —
+> `"Users"` will not resolve to `users`.
+
+> ⚠️ This safety applies to the **CDO DML methods only**. Column names passed to
+> [`Qb`](07-comparison-operators.md) are **not** quoted — see the security note
+> there. User input must never be used as a `Qb` column name.
+
+> The SQL snippets in the examples below are shown **unquoted and with named
+> placeholders for readability**. The actually emitted SQL quotes every
+> identifier and uses positional placeholders (`:c0`, `:c1`, …).
+
+---
+
 ## insert — Single Record
 
 ```php
