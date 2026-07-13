@@ -4,11 +4,15 @@ declare(strict_types=1);
 
 namespace Flytachi\Winter\Cdo\Connection;
 
+use Closure;
+use DateInvalidTimeZoneException;
+use DateMalformedStringException;
 use PDO;
 use PDOException;
 use Psr\Log\LoggerInterface;
 use Flytachi\Winter\Cdo\Qb;
 use Flytachi\Winter\Cdo\Config\Common\DbConfigInterface;
+use Throwable;
 
 /**
  * CDO - Connection Data Object
@@ -685,7 +689,7 @@ class CDO extends PDO
                 $this->exec("SET TIMEZONE TO " . $this->quote($tz));
                 break;
             case 'mysql':
-                $offset = timezoneToOffset($tz);
+                $offset = $this->timezoneToOffset($tz);
                 if ($offset !== null) {
                     $this->exec("SET time_zone = " . $this->quote($offset));
                 }
@@ -696,6 +700,29 @@ class CDO extends PDO
             default:
                 $this->logger->warning("Timezone setting not implemented for driver: $driver");
                 break;
+        }
+    }
+
+    /**
+     * Execute a callback within a database transaction
+     *
+     * Begins a transaction, invokes the callback and commits on success.
+     * If the callback throws, the transaction is rolled back and the
+     * exception is re-thrown.
+     *
+     * @param Closure $callback Callback to run inside the transaction
+     *
+     * @throws Throwable Any exception thrown by the callback (after rollback)
+     */
+    public function transaction(Closure $callback): void
+    {
+        $this->beginTransaction();
+        try {
+            $callback();
+            $this->commit();
+        } catch (Throwable $e) {
+            $this->rollback();
+            throw $e;
         }
     }
 
@@ -891,5 +918,26 @@ class CDO extends PDO
         }
 
         return implode(', ', $updateParts);
+    }
+
+    /**
+     * Convert a timezone identifier to a UTC offset string
+     *
+     * Resolves the current offset (e.g. "+03:00") for the given timezone,
+     * suitable for MySQL's `SET time_zone` statement.
+     *
+     * @param string $timezone PHP timezone identifier
+     *
+     * @return string|null UTC offset in "+HH:MM" format, or null if the timezone is invalid
+     */
+    private function timezoneToOffset(string $timezone): ?string
+    {
+        try {
+            $tz = new \DateTimeZone($timezone);
+            $dt = new \DateTime('now', $tz);
+            return $dt->format('P');
+        } catch (DateInvalidTimeZoneException | DateMalformedStringException $e) {
+            return null;
+        }
     }
 }

@@ -313,6 +313,34 @@ Throws {@see CDOException} if `conflictColumns` is empty or any chunk fails.
 
 ---
 
+## transaction — Transaction Helper
+
+```php
+public function transaction(Closure $callback): void
+```
+
+Runs `$callback` inside a database transaction. The transaction is started
+with `beginTransaction()`, committed if the callback returns normally, and
+rolled back if the callback throws — in which case the original exception is
+re-thrown so the caller can handle it.
+
+This removes the boilerplate `beginTransaction` / `commit` / `rollBack`
+`try`/`catch` block:
+
+```php
+$cdo->transaction(function () use ($cdo, $order, $productId, $newStock) {
+    $cdo->insert('orders', $order);
+    $cdo->update('inventory', ['stock' => $newStock], Qb::eq('id', $productId));
+});
+// Commits automatically. If any statement throws, the transaction is rolled
+// back and the exception propagates to the caller.
+```
+
+> Nested calls are **not** supported — `beginTransaction()` cannot be nested in
+> plain PDO. Use a single top-level `transaction()` call.
+
+---
+
 ## Standard PDO Methods
 
 Since `CDO extends PDO`, all native PDO methods remain available:
@@ -326,7 +354,7 @@ $stmt = $cdo->prepare("SELECT * FROM users WHERE id = :id");
 $stmt->execute([':id' => 1]);
 $user = $stmt->fetch();
 
-// Transactions:
+// Transactions (or use the transaction() helper above):
 $cdo->beginTransaction();
 try {
     $cdo->insert('orders', $order);
@@ -353,6 +381,11 @@ CDO automatically synchronises the database session timezone with PHP's
 
 This ensures that `NOW()`, `CURRENT_TIMESTAMP`, and date arithmetic produce
 consistent results regardless of the database server's system timezone.
+
+MySQL does not accept named zones like `Europe/Moscow` unless the timezone
+tables are loaded, so CDO first resolves the identifier to its current UTC
+offset (e.g. `+03:00`) and sends that instead. An unrecognised timezone
+identifier is skipped silently, leaving the session at the server default.
 
 ---
 
