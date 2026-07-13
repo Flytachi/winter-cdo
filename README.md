@@ -7,7 +7,7 @@
 **CDO** (Connection Data Object) — an extended PDO wrapper for type-safe,
 parameterised database operations with a composable query builder.
 
-**Full documentation:** https://winterframe.net/docs/cdo
+**Full documentation:** https://winterframe.net/packages/cdo
 
 ---
 
@@ -222,7 +222,7 @@ try {
 
 ## Documentation
 
-Full reference documentation is at **https://winterframe.net/docs/cdo**
+Full reference documentation is at **https://winterframe.net/packages/cdo**
 
 Local docs in [`docs/`](docs/):
 

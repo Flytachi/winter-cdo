@@ -9,7 +9,7 @@
   `WHERE` clauses
 - **Connection management** — lazy connection with caching via `ConnectionPool`
 
-**Full web documentation:** https://winterframe.net/docs/cdo
+**Full web documentation:** https://winterframe.net/packages/cdo
 
 ---
 
