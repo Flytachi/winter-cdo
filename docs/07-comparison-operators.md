@@ -201,7 +201,9 @@ a boolean instead of NULL when either side is NULL:
 
 This makes it safe to compare nullable columns without an extra `IS NULL` check.
 
-**PostgreSQL equivalent:** `IS NOT DISTINCT FROM`
+> **PostgreSQL / SQLite:** neither has the `<=>` operator (it is a syntax error
+> there). Use the standard-SQL equivalent `IS NOT DISTINCT FROM` via `Qb::raw()`
+> instead — both support it.
 
 ### Examples
 

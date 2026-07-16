@@ -29,7 +29,12 @@ composer require flytachi/winter-cdo
 |----------|:------:|:-----------:|:------:|:-----------:|:------:|:------:|
 | PostgreSQL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | MySQL / MariaDB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| SQLite | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Oracle | ⚠️ | ✅ | ❌ | ❌ | ✅ | ✅ |
+
+> SQLite uses PostgreSQL-style `ON CONFLICT` upserts. `insert()`/`upsert()` return
+> the last inserted row id via `lastInsertId()` (SQLite is not routed through
+> `RETURNING`). SQLite has no session timezone, so timezone sync is a no-op.
 
 ---
 
@@ -37,7 +42,8 @@ composer require flytachi/winter-cdo
 
 ### 1. Define a configuration
 
-Extend `MySqlDbConfig` or `PgDbConfig` and fill credentials in `setUp()`:
+Extend `MySqlDbConfig`, `PgDbConfig` or `SqliteDbConfig` and fill the connection
+details in `setUp()`:
 
 ```php
 use Flytachi\Winter\Cdo\Config\PgDbConfig;
@@ -56,7 +62,16 @@ class AppDb extends PgDbConfig
 ```
 
 For a one-off connection without a dedicated class, use the inline `PgDbCall` /
-`MySqlDbCall` / `DbCall` constructors — see [Configuration docs](docs/01-configuration.md).
+`MySqlDbCall` / `SqliteDbCall` / `DbCall` constructors — see
+[Configuration docs](docs/01-configuration.md). SQLite needs no server or
+credentials — `new SqliteDbCall(path: 'app.sqlite')`, or the default `:memory:`
+for an ephemeral database (handy in tests):
+
+```php
+use Flytachi\Winter\Cdo\Config\Call\SqliteDbCall;
+
+$cdo = (new SqliteDbCall())->connection();   // in-memory SQLite
+```
 
 ### 2. Get a connection
 
@@ -84,8 +99,8 @@ $cdo->update('users',
 // Delete — returns deleted row count:
 $cdo->delete('users', Qb::eq('id', $id));
 
-// Batch insert:
-$cdo->insertGroup('users', $usersArray, chunkSize: 500);
+// Batch insert — returns the number of inserted rows:
+$inserted = $cdo->insertGroup('users', $usersArray, chunkSize: 500);
 
 // Upsert (insert or update on conflict):
 $cdo->upsert('products',
@@ -244,6 +259,14 @@ Local docs in [`docs/`](docs/):
 | [14-case-expression.md](docs/14-case-expression.md) | CASE WHEN … END |
 | [15-special.md](docs/15-special.md) | raw, empty |
 | [16-advanced-examples.md](docs/16-advanced-examples.md) | Real-world combinations |
+
+---
+
+## Contributing & Security
+
+- Changes and upgrade notes: [CHANGELOG.md](CHANGELOG.md)
+- How to contribute (setup, tests, coding standard): [CONTRIBUTING.md](CONTRIBUTING.md)
+- Reporting a vulnerability: [SECURITY.md](SECURITY.md)
 
 ---
 

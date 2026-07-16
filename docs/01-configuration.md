@@ -5,8 +5,8 @@ connection behaves.  There are two flavours:
 
 | Flavour | When to use |
 |---------|-------------|
-| **Config classes** (`DbConfig`, `MySqlDbConfig`, `PgDbConfig`) | Long-lived configs loaded at application start via environment variables or a service container |
-| **Call classes** (`DbCall`, `MySqlDbCall`, `PgDbCall`) | Short-lived or inline configs created directly with constructor arguments |
+| **Config classes** (`DbConfig`, `MySqlDbConfig`, `PgDbConfig`, `SqliteDbConfig`) | Long-lived configs loaded at application start via environment variables or a service container |
+| **Call classes** (`DbCall`, `MySqlDbCall`, `PgDbCall`, `SqliteDbCall`) | Short-lived or inline configs created directly with constructor arguments |
 
 All of them implement `DbConfigInterface` and are interchangeable.
 
@@ -20,7 +20,7 @@ The interface every config must satisfy:
 |--------|-------------|
 | `setUp()` | Initialise credentials (called once by ConnectionPool) |
 | `getDns()` | Return the PDO DSN string |
-| `getDriver()` | Return the driver name (`'pgsql'`, `'mysql'`, `'oci'`) |
+| `getDriver()` | Return the driver name (`'pgsql'`, `'mysql'`, `'sqlite'`, `'oci'`) |
 | `getUsername()` | Return the DB username |
 | `getPassword()` | Return the DB password |
 | `getPersistentStatus()` | Whether PDO persistent connections are on |
@@ -104,6 +104,32 @@ class AppPgDb extends PgDbConfig
 | `$schema` | `'public'` |
 | `$charset` | `null` |
 
+### SQLite — `SqliteDbConfig`
+
+SQLite is addressed by a file path (or `:memory:`), not host/port/credentials:
+
+```php
+use Flytachi\Winter\Cdo\Config\SqliteDbConfig;
+
+class AppSqliteDb extends SqliteDbConfig
+{
+    public function setUp(): void
+    {
+        $this->path = env('DB_PATH', __DIR__ . '/app.sqlite');
+        // or ':memory:' for an ephemeral in-memory database
+    }
+}
+```
+
+**Default values:**
+
+| Property | Default |
+|----------|---------|
+| `$path` | `':memory:'` |
+
+SQLite upserts use PostgreSQL-style `ON CONFLICT` and are applied automatically.
+There is no session timezone to synchronise, and no credentials are required.
+
 ### Generic — `DbConfig`
 
 Use when the driver is not known at compile time or when connecting to Oracle:
@@ -163,6 +189,20 @@ $config = new PgDbCall(
     schema:   'app_schema',  // optional
     charset:  'UTF8',        // optional
 );
+
+$cdo = $config->connection();
+```
+
+### `SqliteDbCall`
+
+```php
+use Flytachi\Winter\Cdo\Config\Call\SqliteDbCall;
+
+// File-backed:
+$config = new SqliteDbCall(path: __DIR__ . '/app.sqlite');
+
+// In-memory (default):
+$config = new SqliteDbCall();
 
 $cdo = $config->connection();
 ```
@@ -293,4 +333,10 @@ mysql:host=localhost;port=3306;dbname=myapp;charset=utf8mb4;
 PostgreSQL with client encoding:
 ```
 pgsql:host=localhost;port=5432;dbname=myapp;options='--client_encoding=UTF8';
+```
+
+SQLite overrides `getDns()` entirely — it uses a path, not host/port/dbname:
+```
+sqlite:/var/data/app.sqlite
+sqlite::memory:
 ```

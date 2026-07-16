@@ -18,7 +18,7 @@ use Throwable;
  * CDO - Connection Data Object
  *
  * Extended PDO wrapper with convenient methods for database operations.
- * Supports PostgreSQL, MySQL/MariaDB, and Oracle databases.
+ * Supports PostgreSQL, MySQL/MariaDB, SQLite, and Oracle databases.
  *
  * Features:
  * - Automatic driver detection and configuration
@@ -54,7 +54,7 @@ class CDO extends PDO
     /**
      * Normalized database driver name, cached at construction time.
      *
-     * Values: 'pgsql' | 'mysql' | 'mariadb' | 'oci'.
+     * Values: 'pgsql' | 'mysql' | 'mariadb' | 'sqlite' | 'oci'.
      *
      * PDO::ATTR_DRIVER_NAME returns 'mysql' for both MySQL and MariaDB, but they
      * diverge in supported SQL — MariaDB ≥ 10.5 supports `INSERT ... RETURNING`,
@@ -86,9 +86,19 @@ class CDO extends PDO
     {
         $this->logger = $config->getLogger();
         try {
-            parent::__construct($config->getDNS(), $config->getUsername(), $config->getPassword());
-            $this->setAttribute(PDO::ATTR_TIMEOUT, $timeout);
-            $this->setAttribute(PDO::ATTR_PERSISTENT, $config->getPersistentStatus());
+            // ATTR_PERSISTENT and ATTR_TIMEOUT are connection-time options: they
+            // only take effect when passed in the driver-options array here.
+            // PDO::setAttribute(PDO::ATTR_PERSISTENT, …) after construction is a
+            // no-op (returns false), so persistence must be requested up front.
+            parent::__construct(
+                $config->getDNS(),
+                $config->getUsername(),
+                $config->getPassword(),
+                [
+                    PDO::ATTR_PERSISTENT => $config->getPersistentStatus(),
+                    PDO::ATTR_TIMEOUT => $timeout,
+                ]
+            );
             $this->applyDatabase();
 
             if ($debug) {
@@ -106,7 +116,7 @@ class CDO extends PDO
      * MariaDB — this method distinguishes the two: MariaDB is detected from
      * PDO::ATTR_SERVER_VERSION at construction time and returned as 'mariadb'.
      *
-     * @return string One of: 'pgsql' | 'mysql' | 'mariadb' | 'oci'
+     * @return string One of: 'pgsql' | 'mysql' | 'mariadb' | 'sqlite' | 'oci'
      *
      * Example:
      * ```
@@ -211,6 +221,9 @@ class CDO extends PDO
      * @param array $entities Array of entities (objects or arrays)
      * @param int $chunkSize Number of records per INSERT query (default: 1000)
      *
+     * @return int Total number of inserted rows. For a plain INSERT this row
+     *             count is reported identically by PostgreSQL, MySQL and MariaDB.
+     *
      * @throws CDOException If any insert fails
      *
      * Example:
@@ -222,21 +235,28 @@ class CDO extends PDO
      * ];
      *
      * // Insert with default chunk size (1000)
-     * $cdo->insertGroup('users', $users);
+     * $inserted = $cdo->insertGroup('users', $users);
      *
      * // Insert with custom chunk size
-     * $cdo->insertGroup('users', $users, chunkSize: 500);
+     * $inserted = $cdo->insertGroup('users', $users, chunkSize: 500);
      * ```
      */
-    final public function insertGroup(string $table, array $entities, int $chunkSize = 1000): void
+    final public function insertGroup(string $table, array $entities, int $chunkSize = 1000): int
     {
         if (empty($entities)) {
-            return;
+            return 0;
         }
 
-        foreach (array_chunk($entities, $chunkSize) as $chunk) {
-            $this->insertChunk($table, $chunk);
+        // Rows are grouped by their column signature first, so each chunk that
+        // reaches insertChunk() is homogeneous (see groupRowsBySignature()).
+        $affected = 0;
+        foreach ($this->groupRowsBySignature($entities) as $rows) {
+            foreach (array_chunk($rows, $chunkSize) as $chunk) {
+                $affected += $this->insertChunk($table, $chunk);
+            }
         }
+
+        return $affected;
     }
 
     /**
@@ -304,18 +324,28 @@ class CDO extends PDO
             $conflictColumnStr = $this->quoteIdentifierList($conflictColumns);
 
             if (empty($updateColumns)) {
-                if ($this->driverName === 'pgsql') {
+                if ($this->usesPgConflictSyntax()) {
+                    // PostgreSQL / SQLite: ON CONFLICT (...) DO NOTHING.
                     $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
-                        . " ON CONFLICT ($conflictColumnStr) DO NOTHING RETURNING $primaryKey";
+                        . " ON CONFLICT ($conflictColumnStr) DO NOTHING";
+                    // Only PostgreSQL returns the key here; SQLite falls through
+                    // to lastInsertId() to avoid depending on RETURNING (3.35+).
+                    if ($this->driverName === 'pgsql') {
+                        $query .= " RETURNING $primaryKey";
+                    }
                 } else {
                     // MariaDB also disallows RETURNING with INSERT IGNORE, so fall through to lastInsertId().
                     $query = "INSERT IGNORE INTO $tableQ ($columns) VALUES ($placeholders)";
                 }
             } else {
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
-                if ($this->driverName === 'pgsql') {
+                if ($this->usesPgConflictSyntax()) {
+                    // PostgreSQL / SQLite: ON CONFLICT (...) DO UPDATE SET ...
                     $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
-                        . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr RETURNING $primaryKey";
+                        . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
+                    if ($this->driverName === 'pgsql') {
+                        $query .= " RETURNING $primaryKey";
+                    }
                 } else {
                     // MariaDB disallows RETURNING with ON DUPLICATE KEY UPDATE, so fall through to lastInsertId().
                     $query = "INSERT INTO $tableQ ($columns) VALUES ($placeholders)"
@@ -495,6 +525,12 @@ class CDO extends PDO
      *                                   If null or empty - conflicts are ignored (DO NOTHING / INSERT IGNORE)
      * @param int $chunkSize Records per query (default: 500)
      *
+     * Returns void by design: unlike a plain INSERT, the affected-row count of
+     * an upsert is not comparable across drivers — MySQL/MariaDB report 2 per
+     * updated row (1 per insert, 0 when unchanged) while PostgreSQL reports 1
+     * per affected row, and IGNORE / DO NOTHING count only real inserts. There
+     * is no stable cross-database "rows affected" value to return here.
+     *
      * @throws CDOException If conflictColumns is empty or query fails
      *
      * Example: Insert only new records (ignore duplicates)
@@ -562,8 +598,12 @@ class CDO extends PDO
             throw new CDOException('conflictColumns is empty');
         }
 
-        foreach (array_chunk($entities, $chunkSize) as $chunk) {
-            $this->upsertChunk($table, $chunk, $conflictColumns, $updateColumns);
+        // Rows are grouped by their column signature first, so each chunk that
+        // reaches upsertChunk() is homogeneous (see groupRowsBySignature()).
+        foreach ($this->groupRowsBySignature($entities) as $rows) {
+            foreach (array_chunk($rows, $chunkSize) as $chunk) {
+                $this->upsertChunk($table, $chunk, $conflictColumns, $updateColumns);
+            }
         }
     }
 
@@ -644,6 +684,21 @@ class CDO extends PDO
     }
 
     /**
+     * Whether the active driver uses PostgreSQL-style upsert syntax.
+     *
+     * PostgreSQL and SQLite share the same conflict grammar
+     * (`INSERT ... ON CONFLICT (...) DO NOTHING | DO UPDATE SET ... EXCLUDED.col`),
+     * whereas MySQL / MariaDB use the `INSERT IGNORE` / `ON DUPLICATE KEY UPDATE`
+     * family instead.
+     *
+     * @return bool True for 'pgsql' and 'sqlite'.
+     */
+    private function usesPgConflictSyntax(): bool
+    {
+        return $this->driverName === 'pgsql' || $this->driverName === 'sqlite';
+    }
+
+    /**
      * Apply database-specific settings
      *
      * Configures PDO attributes based on driver type and sets timezone.
@@ -697,6 +752,11 @@ class CDO extends PDO
             case 'oci':
                 $this->exec("ALTER SESSION SET TIME_ZONE = " . $this->quote($tz));
                 break;
+            case 'sqlite':
+                // SQLite has no per-session timezone; datetime values are stored
+                // verbatim and its date/time functions operate in UTC. Nothing
+                // to synchronise here — an explicit no-op, not an unsupported one.
+                break;
             default:
                 $this->logger->warning("Timezone setting not implemented for driver: $driver");
                 break;
@@ -727,20 +787,31 @@ class CDO extends PDO
     }
 
     /**
-     * Insert a chunk of entities
+     * Group rows by their column signature for dynamic batch insert / upsert.
      *
-     * @param string $table Table name
-     * @param array $entities Chunk of entities to insert
+     * NULL values are stripped per row so the database applies column DEFAULTs
+     * and auto-increment — matching single-row {@see insert()} semantics. Rows
+     * are then keyed by the canonical (sorted) list of their remaining columns:
+     * rows that share the same set of non-null columns land in the same group
+     * and can be combined into one multi-row statement, while rows of a
+     * different shape form their own group.
      *
-     * @throws CDOException If insert fails
+     * This mirrors Hibernate's `@DynamicInsert` behaviour and prevents the
+     * column/value count mismatch that a single heterogeneous VALUES list would
+     * otherwise produce (e.g. `(a) VALUES (1,2),(3)`).
+     *
+     * Note: grouping re-orders rows — all rows of the first signature are
+     * emitted before the next. For plain batch inserts this is irrelevant, but
+     * do not rely on auto-increment ids following the input array order when
+     * rows have differing column shapes.
+     *
+     * @param array $entities Raw entities (objects or arrays).
+     * @return array<string, array<int, array<string, mixed>>> signature => normalized rows.
+     * @throws CDOException If a row has no non-null columns (nothing to insert).
      */
-    private function insertChunk(string $table, array $entities): void
+    private function groupRowsBySignature(array $entities): array
     {
-        $data = [];
-        $rowIndex = 0;
-        $tuples = [];
-        $col = '';
-
+        $groups = [];
         foreach ($entities as $entity) {
             $items = is_object($entity) ? get_object_vars($entity) : $entity;
             foreach ($items as $key => $value) {
@@ -748,16 +819,46 @@ class CDO extends PDO
                     unset($items[$key]);
                 }
             }
-            $col = $this->quoteIdentifierList(array_keys($items));
+            if (empty($items)) {
+                throw new CDOException('Cannot insert a row with no non-null columns');
+            }
+            ksort($items);
+            $signature = implode(',', array_keys($items));
+            $groups[$signature][] = $items;
+        }
+
+        return $groups;
+    }
+
+    /**
+     * Insert a homogeneous chunk of already-normalized rows.
+     *
+     * Every row shares the same column set (guaranteed by
+     * {@see groupRowsBySignature()}), so the column list is taken once from the
+     * first row and every tuple has a matching value count.
+     *
+     * @param string $table Table name
+     * @param array<int, array<string, mixed>> $rows Normalized rows (null-free, uniform columns)
+     *
+     * @return int Number of rows inserted by this statement.
+     *
+     * @throws CDOException If insert fails
+     */
+    private function insertChunk(string $table, array $rows): int
+    {
+        $col = $this->quoteIdentifierList(array_keys($rows[0]));
+        $data = [];
+        $tuples = [];
+
+        foreach ($rows as $rowIndex => $row) {
             $placeholders = [];
             $colIndex = 0;
-            foreach ($items as $value) {
+            foreach ($row as $value) {
                 $placeholder = ':r' . $rowIndex . '_c' . $colIndex++;
                 $placeholders[] = $placeholder;
                 $data[$placeholder] = $value;
             }
             $tuples[] = '(' . implode(',', $placeholders) . ')';
-            ++$rowIndex;
         }
 
         try {
@@ -769,6 +870,7 @@ class CDO extends PDO
                 $stmt->bindTypedValue($placeholder, $paramVal);
             }
             $stmt->getStmt()->execute();
+            return $stmt->getStmt()->rowCount();
         } catch (PDOException $ex) {
             throw new CDOException(
                 'Error when creating records in the database (' . $ex->getMessage() . ')',
@@ -778,10 +880,18 @@ class CDO extends PDO
     }
 
     /**
-     * Upsert a chunk of entities
+     * Upsert a homogeneous chunk of already-normalized rows.
+     *
+     * Every row shares the same column set (guaranteed by
+     * {@see groupRowsBySignature()}), so the column list is taken once from the
+     * first row and every tuple has a matching value count.
+     *
+     * Note: an `updateColumns` expression referencing a column absent from this
+     * group's signature (its value was NULL for every row here) resolves to
+     * NULL — `EXCLUDED.col` / `VALUES(col)` has no value to draw from.
      *
      * @param string $table Table name
-     * @param array $entities Chunk of entities to upsert
+     * @param array<int, array<string, mixed>> $rows Normalized rows (null-free, uniform columns)
      * @param array $conflictColumns Columns to check for conflict
      * @param array|null $updateColumns Columns to update on conflict
      *
@@ -789,32 +899,23 @@ class CDO extends PDO
      */
     private function upsertChunk(
         string $table,
-        array $entities,
+        array $rows,
         array $conflictColumns,
         ?array $updateColumns
     ): void {
+        $columns = $this->quoteIdentifierList(array_keys($rows[0]));
         $data = [];
-        $rowIndex = 0;
-        $columns = '';
         $tuples = [];
 
-        foreach ($entities as $entity) {
-            $items = is_object($entity) ? get_object_vars($entity) : $entity;
-            foreach ($items as $key => $val) {
-                if (is_null($val)) {
-                    unset($items[$key]);
-                }
-            }
-            $columns = $this->quoteIdentifierList(array_keys($items));
+        foreach ($rows as $rowIndex => $row) {
             $placeholders = [];
             $colIndex = 0;
-            foreach ($items as $val) {
+            foreach ($row as $val) {
                 $placeholder = ':r' . $rowIndex . '_c' . $colIndex++;
                 $placeholders[] = $placeholder;
                 $data[$placeholder] = $val;
             }
             $tuples[] = '(' . implode(',', $placeholders) . ')';
-            ++$rowIndex;
         }
         $values = implode(',', $tuples);
 
@@ -824,7 +925,7 @@ class CDO extends PDO
 
             if (empty($updateColumns)) {
                 // No update - just ignore conflicts
-                if ($this->driverName === 'pgsql') {
+                if ($this->usesPgConflictSyntax()) {
                     $query = "INSERT INTO $tableQ ($columns) VALUES $values"
                         . " ON CONFLICT ($conflictColumnStr) DO NOTHING";
                 } else {
@@ -833,7 +934,7 @@ class CDO extends PDO
             } else {
                 // Update on conflict
                 $updateColumnStr = $this->buildUpdateSetString($updateColumns, $this->driverName, $table);
-                if ($this->driverName === 'pgsql') {
+                if ($this->usesPgConflictSyntax()) {
                     $query = "INSERT INTO $tableQ ($columns) VALUES $values"
                         . " ON CONFLICT ($conflictColumnStr) DO UPDATE SET $updateColumnStr";
                 } else {
@@ -903,7 +1004,9 @@ class CDO extends PDO
 
         foreach ($updateColumns as $column => $expression) {
             $quotedColumn = $this->quoteIdentifier((string) $column);
-            if ($driver === 'pgsql') {
+            if ($driver === 'pgsql' || $driver === 'sqlite') {
+                // PostgreSQL and SQLite both reference the incoming row as
+                // EXCLUDED.column and the existing row as table.column.
                 $prefixedExpression = str_replace(':new', "EXCLUDED.$quotedColumn", $expression);
                 $prefixedExpression = str_replace(
                     ':current',

@@ -18,10 +18,11 @@
 ```
 DbConfigInterface
     └── BaseDbConfig (abstract)
-            ├── MySqlDbConfig ──┐
-            ├── PgDbConfig     ├── extend to define your DB config
-            └── DbConfig       ┘
-            └── Call variants (MySqlDbCall, PgDbCall, DbCall) — inline config
+            ├── MySqlDbConfig  ──┐
+            ├── PgDbConfig       ├── extend to define your DB config
+            ├── SqliteDbConfig   │
+            └── DbConfig        ─┘
+            └── Call variants (MySqlDbCall, PgDbCall, SqliteDbCall, DbCall) — inline config
 
 ConnectionPool
     └── caches config instances, returns CDO on demand
@@ -56,7 +57,7 @@ Qb (Query Builder)
 
 | # | File | Contents |
 |---|------|----------|
-| 01 | [01-configuration.md](01-configuration.md) | Config classes (`MySqlDbConfig`, `PgDbConfig`, `DbConfig`) and inline Call classes |
+| 01 | [01-configuration.md](01-configuration.md) | Config classes (`MySqlDbConfig`, `PgDbConfig`, `SqliteDbConfig`, `DbConfig`) and inline Call classes |
 | 02 | [02-connection-pool.md](02-connection-pool.md) | `ConnectionPool` — config registry, CDO factory, health checks |
 | 03 | [03-cdo.md](03-cdo.md) | `CDO` — all DML methods: insert, update, delete, upsert, batch |
 | 04 | [04-cdo-statement.md](04-cdo-statement.md) | `CDOStatement` — type-aware binding, object serialisation |

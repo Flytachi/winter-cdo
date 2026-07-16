@@ -42,7 +42,7 @@ Values are always bound as prepared-statement parameters. **Identifiers**
 (table names, column names) cannot be bound, so CDO **quotes them** with the
 driver's quoting characters before building the query:
 
-- PostgreSQL / Oracle: double quotes — `"users"."email"`
+- PostgreSQL / SQLite / Oracle: double quotes — `"users"."email"`
 - MySQL / MariaDB: backticks — `` `users`.`email` ``
 
 Dot-qualified names are treated as `schema.table` and each segment is quoted
@@ -75,8 +75,8 @@ Inserts one row and returns the generated primary key.
 - `null` values in `$entity` are **excluded** from the INSERT (the database
   fills them in via defaults or auto-increment).
 - The primary key column is assumed to be the **first key** in `$entity`.
-- PostgreSQL: uses `RETURNING <primaryKey>`.
-- MySQL/MariaDB: uses `PDO::lastInsertId()`.
+- PostgreSQL / MariaDB: use `RETURNING <primaryKey>`.
+- MySQL / SQLite: use `PDO::lastInsertId()`.
 
 ```php
 // Array form:
@@ -103,15 +103,21 @@ Throws {@see CDOException} on failure.
 ## insertGroup — Batch Insert
 
 ```php
-public function insertGroup(string $table, array $entities, int $chunkSize = 1000): void
+public function insertGroup(string $table, array $entities, int $chunkSize = 1000): int
 ```
 
 Inserts many rows efficiently.  The array is split into chunks to avoid
 exceeding the maximum placeholder count or packet size.
 
 - `null` values in each entity are excluded from that row's INSERT.
-- Each chunk is inserted in a single `INSERT INTO … VALUES (…), (…), …` statement.
+- Rows are grouped by their column signature first (rows sharing the same set
+  of non-null columns are batched together), so a mix of shapes never produces
+  a column/value count mismatch. Rows are re-ordered by group as a result.
+- Each group-chunk is inserted in a single `INSERT INTO … VALUES (…), (…), …`
+  statement.
 - The default chunk size is **1 000** rows per query.
+- Returns the total number of inserted rows — a plain INSERT reports this row
+  count identically on PostgreSQL, MySQL and MariaDB.
 
 ```php
 $users = [
@@ -120,11 +126,12 @@ $users = [
     // ... thousands more
 ];
 
-$cdo->insertGroup('users', $users);              // chunks of 1 000
-$cdo->insertGroup('users', $users, chunkSize: 500);  // smaller chunks
+$inserted = $cdo->insertGroup('users', $users);              // chunks of 1 000
+$inserted = $cdo->insertGroup('users', $users, chunkSize: 500);  // smaller chunks
 ```
 
-Throws {@see CDOException} if any chunk fails.
+Throws {@see CDOException} if any chunk fails, or if a row has no non-null
+columns (nothing to insert).
 
 ---
 
@@ -219,10 +226,12 @@ The columns that define uniqueness (the conflict target):
 
 Defines what to update on conflict.  Use the placeholder tokens in expressions:
 
-| Token | Meaning | PostgreSQL | MySQL |
-|-------|---------|-----------|-------|
+| Token | Meaning | PostgreSQL / SQLite | MySQL / MariaDB |
+|-------|---------|---------------------|-----------------|
 | `:new` | The incoming value | `EXCLUDED.column` | `VALUES(column)` |
 | `:current` | The existing table value | `table.column` | `column` |
+
+SQLite uses the same PostgreSQL-style `ON CONFLICT` grammar shown below.
 
 ```php
 // Replace values on conflict:
@@ -256,12 +265,13 @@ Omit or pass `null` as `$updateColumns`:
 
 ```php
 $cdo->upsert('users', $user, ['email']);
-// PostgreSQL: ON CONFLICT (email) DO NOTHING
-// MySQL:      INSERT IGNORE INTO users ...
+// PostgreSQL / SQLite: ON CONFLICT (email) DO NOTHING
+// MySQL / MariaDB:     INSERT IGNORE INTO users ...
 ```
 
-Returns the primary key value (PostgreSQL only via `RETURNING`; MySQL returns
-`lastInsertId()`).  Returns `null` on conflict with `DO NOTHING`.
+Returns the primary key value (PostgreSQL only, via `RETURNING`; MySQL, MariaDB
+and SQLite return `lastInsertId()`).  Returns `null` on conflict with
+`DO NOTHING`.
 Throws {@see CDOException} if `conflictColumns` is empty or query fails.
 
 ---
@@ -278,8 +288,15 @@ public function upsertGroup(
 ): void
 ```
 
-Same semantics as `upsert`, but for arrays of records.  Rows are split into
-chunks (default **500** per query) to avoid database limits.
+Same semantics as `upsert`, but for arrays of records.  Rows are grouped by
+column signature and then split into chunks (default **500** per query) to
+avoid database limits.
+
+Returns `void` by design: unlike a plain INSERT, an upsert's affected-row count
+is not comparable across drivers — MySQL/MariaDB report 2 per updated row
+(1 per insert, 0 when unchanged), PostgreSQL reports 1 per affected row, and
+`INSERT IGNORE` / `DO NOTHING` count only real inserts. There is no stable
+cross-database "rows affected" value to return, so none is.
 
 The `:new` / `:current` placeholder tokens work identically.
 
@@ -376,11 +393,16 @@ CDO automatically synchronises the database session timezone with PHP's
 | Driver | SQL executed |
 |--------|-------------|
 | PostgreSQL | `SET TIMEZONE TO 'Europe/Moscow'` |
-| MySQL | `SET time_zone = '+03:00'` |
+| MySQL / MariaDB | `SET time_zone = '+03:00'` |
 | Oracle | `ALTER SESSION SET TIME_ZONE = 'Europe/Moscow'` |
+| SQLite | — (no-op) |
 
 This ensures that `NOW()`, `CURRENT_TIMESTAMP`, and date arithmetic produce
 consistent results regardless of the database server's system timezone.
+
+SQLite has no per-session timezone — its date/time functions operate in UTC and
+datetime values are stored verbatim — so there is nothing to synchronise and the
+step is a deliberate no-op (no warning is logged).
 
 MySQL does not accept named zones like `Europe/Moscow` unless the timezone
 tables are loaded, so CDO first resolves the identifier to its current UTC

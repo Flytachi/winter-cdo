@@ -1,6 +1,6 @@
 {
     "name": "flytachi/winter-cdo",
-    "description": "Extended, type-safe PDO wrapper for PostgreSQL, MySQL/MariaDB and Oracle with a composable, injection-safe query builder.",
+    "description": "Extended, type-safe PDO wrapper for PostgreSQL, MySQL/MariaDB, SQLite and Oracle with a composable, injection-safe query builder.",
     "type": "library",
     "license": "MIT",
     "scripts": {
@@ -42,6 +42,7 @@
         "postgresql",
         "mysql",
         "mariadb",
+        "sqlite",
         "oracle",
         "upsert",
         "dbal",
