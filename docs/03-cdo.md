@@ -356,6 +356,18 @@ $cdo->transaction(function () use ($cdo, $order, $productId, $newStock) {
 > Nested calls are **not** supported — `beginTransaction()` cannot be nested in
 > plain PDO. Use a single top-level `transaction()` call.
 
+**Cross-database notes:**
+
+- Works on all supported drivers (PostgreSQL, MySQL/MariaDB, SQLite, Oracle) for
+  ordinary DML. On MySQL/MariaDB only transactional engines (InnoDB) roll back.
+- **DDL inside a transaction:** PostgreSQL and SQLite are transactional (a
+  `CREATE`/`ALTER`/`DROP` rolls back), but MySQL/MariaDB and Oracle **implicitly
+  commit** on DDL — it cannot be rolled back and silently ends the transaction.
+- If the callback throws, the rollback is guarded by `inTransaction()` and its
+  own failure is logged rather than thrown, so the **original** callback
+  exception is always the one propagated — even when the transaction was already
+  ended out-of-band (e.g. by an implicit-commit DDL statement).
+
 ---
 
 ## Standard PDO Methods

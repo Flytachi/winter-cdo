@@ -52,6 +52,11 @@ for their history.
 - Inserting a row whose columns are all `NULL` now raises a clear `CDOException`
   before hitting the database, instead of behaving differently per driver
   (silent insert on MySQL vs. a syntax error on PostgreSQL).
+- `CDO::transaction()` no longer lets a failing `rollback()` mask the original
+  callback exception: the rollback is guarded by `inTransaction()`, wrapped so
+  its own failure is logged instead of thrown, and the original error is always
+  the one propagated. This matters when a transaction was ended out-of-band
+  (e.g. a DDL statement causing an implicit commit on MySQL/MariaDB/Oracle).
 
 [Unreleased]: https://github.com/flytachi/winter-cdo/compare/v3.2.0...HEAD
 [3.2.0]: https://github.com/flytachi/winter-cdo/releases/tag/v3.2.0

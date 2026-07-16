@@ -159,6 +159,29 @@ class SqliteIntegrationTest extends TestCase
         $this->assertSame(0, (int) $this->cdo->query('SELECT count(*) FROM inventory')->fetchColumn());
     }
 
+    public function testTransactionSkipsRollbackWhenAlreadyEnded(): void
+    {
+        // The transaction is ended inside the callback (here via an explicit
+        // commit — in the wild, a DDL implicit commit on MySQL/Oracle does this)
+        // and the callback then throws. The `inTransaction()` guard must skip the
+        // rollback so the ORIGINAL error surfaces, not a secondary
+        // "no active transaction" from rollBack().
+        try {
+            $this->cdo->transaction(function (): void {
+                $this->cdo->insert('inventory', ['id' => null, 'sku' => 'C1', 'name' => 'Committed']);
+                $this->cdo->commit();
+                throw new RuntimeException('original error');
+            });
+            $this->fail('Expected the callback exception to propagate');
+        } catch (RuntimeException $e) {
+            $this->assertSame('original error', $e->getMessage());
+        }
+
+        // The row committed before the throw stays committed, and no transaction leaks.
+        $this->assertSame('Committed', $this->cdo->query("SELECT name FROM inventory WHERE sku='C1'")->fetchColumn());
+        $this->assertFalse($this->cdo->inTransaction());
+    }
+
     public function testUpsertGroupMultiColumnConflict(): void
     {
         $this->cdo->exec(

@@ -753,9 +753,6 @@ class CDO extends PDO
                 $this->exec("ALTER SESSION SET TIME_ZONE = " . $this->quote($tz));
                 break;
             case 'sqlite':
-                // SQLite has no per-session timezone; datetime values are stored
-                // verbatim and its date/time functions operate in UTC. Nothing
-                // to synchronise here — an explicit no-op, not an unsupported one.
                 break;
             default:
                 $this->logger->warning("Timezone setting not implemented for driver: $driver");
@@ -781,7 +778,14 @@ class CDO extends PDO
             $callback();
             $this->commit();
         } catch (Throwable $e) {
-            $this->rollback();
+            // a DDL statement caused an implicit commit on MySQL/MariaDB/Oracle.
+            try {
+                if ($this->inTransaction()) {
+                    $this->rollback();
+                }
+            } catch (Throwable $rollbackError) {
+                $this->logger->error('Transaction rollback failed: ' . $rollbackError->getMessage());
+            }
             throw $e;
         }
     }
