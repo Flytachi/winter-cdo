@@ -49,10 +49,22 @@ abstract class PgDbConfig extends BaseDbConfig
     protected string $schema = 'public';
     /** @var string|null Optional client encoding appended to the DSN (e.g. `'UTF8'`). */
     protected ?string $charset = null;
+    /**
+     * SSL mode appended to the DSN. Default `'disable'`: under Swoole the pgsql
+     * socket is non-blocking (SWOOLE_HOOK_PDO_PGSQL) and libpq's SSL negotiation
+     * races with the async connect on a cold/remote connection ("could not send SSL
+     * negotiation packet: Resource temporarily unavailable"), so the first connect
+     * fails. Override in `setUp()` (e.g. `'require'`, `'verify-full'`) for a database
+     * that mandates TLS; set `''` to omit the key entirely (libpq default `prefer`).
+     */
+    protected string $sslmode = 'disable';
 
     public function getDns(): string
     {
         $dns = parent::getDns();
+        if ($this->sslmode !== '') {
+            $dns .= 'sslmode=' . $this->sslmode . ';';
+        }
         if ($this->charset !== null) {
             $dns .= "options='--client_encoding=" . $this->charset . "';";
         }

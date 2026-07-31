@@ -39,6 +39,8 @@ final class PgDbCall extends BaseDbConfig
      * @param string      $password Authentication password.
      * @param string      $schema   Default schema name returned by {@see getSchema()} (default: `'public'`).
      * @param string|null $charset  Optional client encoding appended to the DSN (e.g. `'UTF8'`).
+     * @param string      $sslmode  SSL mode in the DSN (default: `'disable'` — safe for
+     *                              Swoole's non-blocking pgsql socket; set `''` to omit).
      */
     public function __construct(
         public string $host = 'localhost',
@@ -48,6 +50,7 @@ final class PgDbCall extends BaseDbConfig
         public string $password = '',
         public string $schema = 'public',
         public ?string $charset = null,
+        public string $sslmode = 'disable',
     ) {
         parent::__construct();
     }
@@ -55,6 +58,9 @@ final class PgDbCall extends BaseDbConfig
     public function getDns(): string
     {
         $dns = parent::getDns();
+        if ($this->sslmode !== '') {
+            $dns .= 'sslmode=' . $this->sslmode . ';';
+        }
         if ($this->charset !== null) {
             $dns .= "options='--client_encoding=" . $this->charset . "';";
         }

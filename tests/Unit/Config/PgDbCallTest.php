@@ -64,6 +64,21 @@ class PgDbCallTest extends TestCase
         $this->assertStringNotContainsString('client_encoding', $config->getDns());
     }
 
+    public function testGetDnsDefaultsToSslmodeDisable(): void
+    {
+        $this->assertStringContainsString('sslmode=disable', (new PgDbCall())->getDns());
+    }
+
+    public function testGetDnsSslmodeCanBeOverridden(): void
+    {
+        $this->assertStringContainsString('sslmode=require', (new PgDbCall(sslmode: 'require'))->getDns());
+    }
+
+    public function testGetDnsEmptySslmodeOmitsKey(): void
+    {
+        $this->assertStringNotContainsString('sslmode', (new PgDbCall(sslmode: ''))->getDns());
+    }
+
     // ─── getSchema ───────────────────────────────────────────────────────
 
     public function testGetSchemaReturnsDefault(): void
