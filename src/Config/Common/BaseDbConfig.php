@@ -8,6 +8,7 @@ use Flytachi\Winter\Cdo\Connection\CDO;
 use Flytachi\Winter\Cdo\Connection\CDOException;
 use Psr\Log\LoggerInterface;
 use Psr\Log\NullLogger;
+use Throwable;
 
 /**
  * BaseDbConfig — Abstract Database Configuration Base
@@ -123,17 +124,20 @@ abstract class BaseDbConfig implements DbConfigInterface
     /**
      * Tests reachability with a simple `SELECT 1` query.
      *
+     * `Throwable` is caught on purpose, not `CDOException`: the round trip runs through
+     * `PDO::query()`, which raises a `PDOException` — a sibling of `CDOException`, not a
+     * subclass, so a narrower catch never matches. Any failure to complete the round
+     * trip means the connection did not answer.
+     *
      * @return bool `true` if the database responded, `false` on any error.
      */
     final public function ping(): bool
     {
         try {
             $this->connect();
-            $stmt = $this->cdo->query("SELECT 1");
-        } catch (CDOException $e) {
-            $stmt = false;
-        } finally {
-            return $stmt !== false;
+            return $this->cdo->query("SELECT 1") !== false;
+        } catch (Throwable) {
+            return false;
         }
     }
 
@@ -144,20 +148,18 @@ abstract class BaseDbConfig implements DbConfigInterface
      */
     final public function pingDetail(): array
     {
-        $start = microtime(true);
+        $start  = microtime(true);
         $status = true;
-        $error = null;
+        $error  = null;
 
         try {
             $this->connect();
-            $stmt = $this->cdo->query("SELECT 1");
-
-            if ($stmt === false) {
+            if ($this->cdo->query("SELECT 1") === false) {
                 $status = false;
             }
-        } catch (CDOException $e) {
+        } catch (Throwable $e) {
             $status = false;
-            $error = $e->getMessage();
+            $error  = $e->getMessage();
         }
 
         $latency = (microtime(true) - $start) * 1000;
