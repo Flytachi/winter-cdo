@@ -300,7 +300,7 @@ class QbTest extends TestCase
             Qb::eq('a', 1),
             Qb::eq('b', 2),
         );
-        $this->assertSqlMatches('/^a = :iqb\d+ AND b = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(a = :iqb\d+ AND b = :iqb\d+\)$/', $qb);
         $this->assertSame([1, 2], $this->values($qb));
     }
 
@@ -310,7 +310,7 @@ class QbTest extends TestCase
             Qb::eq('role', 'admin'),
             Qb::eq('role', 'mod'),
         );
-        $this->assertSqlMatches('/^role = :iqb\d+ OR role = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(role = :iqb\d+ OR role = :iqb\d+\)$/', $qb);
         $this->assertSame(['admin', 'mod'], $this->values($qb));
     }
 
@@ -320,7 +320,7 @@ class QbTest extends TestCase
             Qb::eq('flag_a', 1),
             Qb::eq('flag_b', 1),
         );
-        $this->assertSqlMatches('/^flag_a = :iqb\d+ XOR flag_b = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(flag_a = :iqb\d+ XOR flag_b = :iqb\d+\)$/', $qb);
     }
 
     public function testAndSkipsNullConditions(): void
@@ -330,7 +330,7 @@ class QbTest extends TestCase
             null,
             Qb::eq('b', 2),
         );
-        $this->assertSqlMatches('/^a = :iqb\d+ AND b = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(a = :iqb\d+ AND b = :iqb\d+\)$/', $qb);
         $this->assertCount(2, $qb->getBinds());
     }
 
@@ -341,7 +341,7 @@ class QbTest extends TestCase
             Qb::empty(),
             Qb::eq('b', 2),
         );
-        $this->assertSqlMatches('/^a = :iqb\d+ AND b = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(a = :iqb\d+ AND b = :iqb\d+\)$/', $qb);
         $this->assertCount(2, $qb->getBinds());
     }
 
@@ -406,7 +406,7 @@ class QbTest extends TestCase
         $qb = Qb::eq('a', 1);
         $qb->addAnd(Qb::eq('b', 2));
 
-        $this->assertSqlMatches('/^a = :iqb\d+ AND b = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(a = :iqb\d+ AND b = :iqb\d+\)$/', $qb);
         $this->assertSame([1, 2], $this->values($qb));
     }
 
@@ -415,7 +415,7 @@ class QbTest extends TestCase
         $qb = Qb::eq('role', 'admin');
         $qb->addOr(Qb::eq('role', 'mod'));
 
-        $this->assertSqlMatches('/^role = :iqb\d+ OR role = :iqb\d+$/', $qb);
+        $this->assertSqlMatches('/^\(role = :iqb\d+ OR role = :iqb\d+\)$/', $qb);
     }
 
     public function testAddAndOnEmptyBase(): void
@@ -449,7 +449,7 @@ class QbTest extends TestCase
             Qb::eq('reviewer_id', $uid),
         );
 
-        $this->assertSame('author_id = :uid OR reviewer_id = :uid', $qb->getQuery());
+        $this->assertSame('(author_id = :uid OR reviewer_id = :uid)', $qb->getQuery());
         // Two binds, both with name ':uid' and value 42
         $this->assertCount(2, $qb->getBinds());
         foreach ($qb->getBinds() as $bind) {
@@ -603,5 +603,70 @@ class QbTest extends TestCase
         // Only status condition should survive
         $this->assertSqlMatches('/^status = :iqb\d+$/', $qb);
         $this->assertSame(['active'], $this->values($qb));
+    }
+
+    // ─── Operator precedence: groups must survive nesting ────────────────
+
+    /**
+     * SQL binds AND tighter than OR, so a group that loses its parentheses changes
+     * which rows match — silently, with no error. These lock the grouping in place.
+     */
+    public function testOrGroupKeepsItsMeaningInsideAnd(): void
+    {
+        $qb = Qb::and(
+            Qb::eq('status', 'active'),
+            Qb::or(Qb::eq('role', 'admin'), Qb::eq('role', 'editor')),
+        );
+
+        // Without the inner parentheses this reads as (status AND admin) OR editor,
+        // which returns every editor regardless of status.
+        $this->assertSqlMatches(
+            '/^\(status = :iqb\d+ AND \(role = :iqb\d+ OR role = :iqb\d+\)\)$/',
+            $qb,
+        );
+    }
+
+    public function testTwoOrGroupsIntersectRatherThanBleed(): void
+    {
+        $qb = Qb::and(
+            Qb::or(Qb::eq('a', 1), Qb::eq('b', 2)),
+            Qb::or(Qb::eq('c', 3), Qb::eq('d', 4)),
+        );
+
+        $this->assertSqlMatches(
+            '/^\(\(a = :iqb\d+ OR b = :iqb\d+\) AND \(c = :iqb\d+ OR d = :iqb\d+\)\)$/',
+            $qb,
+        );
+    }
+
+    public function testASingleConditionIsNotWrapped(): void
+    {
+        $this->assertSqlMatches('/^status = :iqb\d+$/', Qb::and(Qb::eq('status', 'active')));
+        $this->assertSqlMatches('/^status = :iqb\d+$/', Qb::or(Qb::eq('status', 'active')));
+    }
+
+    public function testMutableAppendGroupsToo(): void
+    {
+        // The mutable path has the same hazard: a group built with addOr() gets nested
+        // just as often as one built with Qb::or().
+        $qb = Qb::eq('role', 'admin');
+        $qb->addOr(Qb::eq('role', 'editor'));
+
+        $combined = Qb::and(Qb::eq('status', 'active'), $qb);
+
+        $this->assertSqlMatches(
+            '/^\(status = :iqb\d+ AND \(role = :iqb\d+ OR role = :iqb\d+\)\)$/',
+            $combined,
+        );
+    }
+
+    public function testAppendingAnEmptyConditionLeavesNoDanglingOperator(): void
+    {
+        $qb = Qb::eq('a', 1);
+        $qb->addAnd(Qb::empty());
+
+        // "a = :iqb0 AND " would be a syntax error the moment it reached the database.
+        $this->assertSqlMatches('/^a = :iqb\d+$/', $qb);
+        $this->assertCount(1, $qb->getBinds());
     }
 }

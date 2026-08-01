@@ -31,7 +31,7 @@ use InvalidArgumentException;
  *     Qb::gte('age', 18),
  *     Qb::like('name', '%john%'),
  * );
- * // SQL  : status = :iqb0 AND age >= :iqb1 AND name LIKE :iqb2
+ * // SQL  : (status = :iqb0 AND age >= :iqb1 AND name LIKE :iqb2)
  * // Binds: [:iqb0 => 'active', :iqb1 => 18, :iqb2 => '%john%']
  * ```
  *
@@ -118,9 +118,30 @@ final class Qb
         $this->add($qb, 'XOR');
     }
 
+    /**
+     * Appends a condition in place, mirroring the immutable factories.
+     *
+     * Two rules make it behave like {@see and()} and friends:
+     *
+     * - an empty condition is skipped rather than leaving a dangling operator
+     *   (`a = :iqb0 AND ` is not valid SQL);
+     * - a real combination is wrapped in parentheses, so it keeps its meaning once
+     *   nested in another group — `AND` binds tighter than `OR`, and an unparenthesised
+     *   group silently changes which rows match.
+     */
     private function add(Qb $qb, string $operator): void
     {
-        $this->query .= (empty($this->query) ? '' : " $operator ") . $qb->query;
+        if ($qb->query === '') {
+            return;
+        }
+
+        if ($this->query === '') {
+            $this->query = $qb->query;
+            $this->binds = array_merge($this->binds, $qb->binds);
+            return;
+        }
+
+        $this->query = '(' . $this->query . " {$operator} " . $qb->query . ')';
         $this->binds = array_merge($this->binds, $qb->binds);
     }
 
@@ -579,7 +600,7 @@ final class Qb
      *     Qb::eq('status', 'active'),
      *     Qb::gte('age', 18),
      * )
-     * // status = :iqb0 AND age >= :iqb1
+     * // (status = :iqb0 AND age >= :iqb1)
      * ```
      *
      * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
@@ -601,7 +622,7 @@ final class Qb
      *     Qb::eq('role', 'admin'),
      *     Qb::eq('role', 'moderator'),
      * )
-     * // role = :iqb0 OR role = :iqb1
+     * // (role = :iqb0 OR role = :iqb1)
      * ```
      *
      * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
@@ -621,7 +642,7 @@ final class Qb
      *
      * ```
      * Qb::xor(Qb::eq('a', 1), Qb::eq('b', 2))
-     * // a = :iqb0 XOR b = :iqb1
+     * // (a = :iqb0 XOR b = :iqb1)
      * ```
      *
      * @param Qb|null ...$conditions Conditions to join (nulls are skipped).
@@ -636,17 +657,19 @@ final class Qb
     /**
      * Wraps a condition in parentheses — `(condition)`
      *
-     * Essential for controlling operator precedence when mixing AND and OR.
+     * Rarely needed: {@see and()}, {@see or()} and {@see xor()} already parenthesise a
+     * group of two or more conditions, so nesting them keeps its meaning on its own.
+     * Reach for this to group something they did not build — a {@see raw()} fragment,
+     * or a single condition you want bracketed explicitly.
+     *
      * An empty condition is returned as-is (no wrapping).
      *
      * ```
      * Qb::and(
-     *     Qb::eq('status', 'active'),
-     *     Qb::clip(
-     *         Qb::or(Qb::eq('role', 'admin'), Qb::eq('role', 'moderator'))
-     *     ),
+     *     Qb::eq('deleted_at', null),
+     *     Qb::clip(Qb::raw('score > avg_score')),
      * )
-     * // status = :iqb0 AND (role = :iqb1 OR role = :iqb2)
+     * // deleted_at IS NULL AND (score > avg_score)
      * ```
      *
      * @param Qb $condition The condition to wrap.
@@ -813,6 +836,22 @@ final class Qb
     /**
      * Prepares logical conditions.
      *
+     * A group of two or more conditions is **wrapped in parentheses**, so composing
+     * groups keeps the meaning the caller wrote. SQL binds `AND` tighter than `OR`, so
+     * an unparenthesised group silently changes the result once nested:
+     *
+     * ```
+     * Qb::and($status, Qb::or($admin, $editor))
+     * // without parentheses: status = ? AND role = ? OR role = ?
+     * //   ⟶ (status AND admin) OR editor   — every editor matches, whatever the status
+     * // with parentheses:    status = ? AND (role = ? OR role = ?)
+     * ```
+     *
+     * That failure is silent — no error, just different rows — so the grouping is
+     * applied here rather than left to {@see clip()} at every call site.
+     *
+     * A single condition is returned untouched: `Qb::and($one)` stays `col = :bind`.
+     *
      * @param string $operator The logical operator (AND, OR, XOR).
      * @param array $conditions The conditions to combine.
      * @return array
@@ -831,7 +870,9 @@ final class Qb
         }
 
         return [
-            'query' => implode(" {$operator} ", $queryParts),
+            'query' => count($queryParts) > 1
+                ? '(' . implode(" {$operator} ", $queryParts) . ')'
+                : ($queryParts[0] ?? ''),
             'binds' => $binds,
         ];
     }
