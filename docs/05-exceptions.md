@@ -20,11 +20,11 @@ CDOException
 | PDO connection failed | `CDO::__construct()` |
 | INSERT query failed | `CDO::insert()` |
 | INSERT returned no result | `CDO::insert()` (result falsy) |
-| Batch INSERT failed | `CDO::insertGroup()` |
+| Batch INSERT failed | `CDO::insertBatch()` |
 | UPDATE query failed | `CDO::update()` |
 | DELETE query failed | `CDO::delete()` |
-| `conflictColumns` is empty | `CDO::upsert()`, `CDO::upsertGroup()` |
-| UPSERT query failed | `CDO::upsert()`, `CDO::upsertGroup()` |
+| `conflictColumns` is empty | `CDO::upsert()`, `CDO::upsertBatch()` |
+| UPSERT query failed | `CDO::upsert()`, `CDO::upsertBatch()` |
 
 ---
 

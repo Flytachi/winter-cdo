@@ -116,7 +116,7 @@ $qb->getQuery();
 ```
 
 > **Note:** `XOR` is native to MySQL/MariaDB only — see
-> [07-logical-operators.md](07-logical-operators.md) for portability details.
+> [12-logical-operators.md](12-logical-operators.md) for portability details.
 
 ---
 

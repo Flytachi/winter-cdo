@@ -15,7 +15,7 @@ use RuntimeException;
 /**
  * End-to-end SQLite tests exercising the real CDO surface against an in-memory
  * database (no external server required — the pdo_sqlite extension ships with
- * PHP). These prove that driver detection, quoting, insert/insertGroup,
+ * PHP). These prove that driver detection, quoting, insert/insertBatch,
  * update/delete and the PostgreSQL-style upsert path all work on SQLite.
  */
 class SqliteIntegrationTest extends TestCase
@@ -55,7 +55,7 @@ class SqliteIntegrationTest extends TestCase
     public function testInsertGroupReturnsCountAndHandlesHeterogeneousRows(): void
     {
         // Rows with differing null-patterns must not blow up (grouping fix).
-        $n = $this->cdo->insertGroup('inventory', [
+        $n = $this->cdo->insertBatch('inventory', [
             ['sku' => 'B2', 'name' => 'Bob'],
             ['sku' => 'C3', 'name' => 'Carol', 'qty' => 5, 'price' => 1.2],
         ]);
@@ -99,7 +99,7 @@ class SqliteIntegrationTest extends TestCase
     public function testUpsertGroupMixesInsertAndUpdate(): void
     {
         $this->cdo->insert('inventory', ['id' => null, 'sku' => 'A1', 'name' => 'W', 'qty' => 10]);
-        $this->cdo->upsertGroup(
+        $this->cdo->upsertBatch(
             'inventory',
             [
                 ['sku' => 'A1', 'name' => 'W', 'qty' => 100], // existing -> 10 + 100
@@ -116,7 +116,7 @@ class SqliteIntegrationTest extends TestCase
     public function testInsertGroupRejectsAllNullRow(): void
     {
         $this->expectException(CDOException::class);
-        $this->cdo->insertGroup('inventory', [
+        $this->cdo->insertBatch('inventory', [
             ['id' => null, 'name' => null],
         ]);
     }
@@ -194,7 +194,7 @@ class SqliteIntegrationTest extends TestCase
         );
 
         $this->cdo->insert('stock', ['warehouse_id' => 1, 'product_id' => 100, 'qty' => 10]);
-        $this->cdo->upsertGroup(
+        $this->cdo->upsertBatch(
             'stock',
             [
                 ['warehouse_id' => 1, 'product_id' => 100, 'qty' => 5], // existing -> 15

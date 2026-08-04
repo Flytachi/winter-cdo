@@ -25,7 +25,7 @@ composer require flytachi/winter-cdo
 
 ## Supported Databases
 
-| Database | insert | insertGroup | upsert | upsertGroup | update | delete |
+| Database | insert | insertBatch | upsert | upsertBatch | update | delete |
 |----------|:------:|:-----------:|:------:|:-----------:|:------:|:------:|
 | PostgreSQL | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | MySQL / MariaDB | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
@@ -100,7 +100,14 @@ $cdo->update('users',
 $cdo->delete('users', Qb::eq('id', $id));
 
 // Batch insert — returns the number of inserted rows:
-$inserted = $cdo->insertGroup('users', $usersArray, chunkSize: 500);
+$inserted = $cdo->insertBatch('users', $usersArray, chunkSize: 500);
+
+// …or stream them: a generator keeps peak memory at one batch, whatever the total.
+$inserted = $cdo->insertBatch('users', (function () use ($csv) {
+    while (($line = fgetcsv($csv)) !== false) {
+        yield ['name' => $line[0], 'email' => $line[1]];
+    }
+})());
 
 // Upsert (insert or update on conflict):
 $cdo->upsert('products',
@@ -205,7 +212,7 @@ $where = Qb::or(
 | `:current` | `table.column` | `column` |
 
 ```php
-$cdo->upsertGroup('inventory', $items,
+$cdo->upsertBatch('inventory', $items,
     conflictColumns: ['warehouse_id', 'product_id'],
     updateColumns: [
         'cost'       => ':new',
@@ -214,6 +221,10 @@ $cdo->upsertGroup('inventory', $items,
     ]
 );
 ```
+
+`updateColumns` maps **column => expression**. A plain list — `['cost', 'quantity']`,
+the shape Laravel's `upsert()` takes — is refused with a message showing the corrected
+call; pass `[]` or `null` to ignore conflicts entirely (`DO NOTHING` / `INSERT IGNORE`).
 
 ---
 
@@ -243,6 +254,7 @@ Local docs in [`docs/`](docs/):
 
 | File | Topic |
 |------|-------|
+| [00-overview.md](docs/00-overview.md) | How the pieces fit together |
 | [01-configuration.md](docs/01-configuration.md) | Config classes, inline Call classes |
 | [02-connection-pool.md](docs/02-connection-pool.md) | ConnectionPool, health checks |
 | [03-cdo.md](docs/03-cdo.md) | All CDO DML methods |

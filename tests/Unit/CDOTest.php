@@ -13,8 +13,8 @@ use ReflectionProperty;
 use RuntimeException;
 
 /**
- * Tests for CDO::groupRowsBySignature() — the dynamic batch-insert grouping
- * that keeps insertGroup()/upsertGroup() correct when rows have differing
+ * Tests for CDO::normalizeRow() — the dynamic batch-insert grouping
+ * that keeps insertBatch()/upsertBatch() correct when rows have differing
  * column shapes (mirrors Hibernate @DynamicInsert) — and for the transaction()
  * rollback-safety behaviour.
  *
@@ -30,9 +30,21 @@ class CDOTest extends TestCase
      */
     private function group(array $entities): array
     {
+        // Rebuilds what insertBatch()/upsertBatch() do row by row: normalize, then key
+        // by the resulting column list. The grouping itself now lives in those methods
+        // as buffers filled and flushed on the fly, so what stays testable here is the
+        // invariant normalizeRow() owns — rows of the same shape must produce the same
+        // key, whichever order their columns were written in.
         $cdo = (new \ReflectionClass(CDO::class))->newInstanceWithoutConstructor();
-        $method = new ReflectionMethod(CDO::class, 'groupRowsBySignature');
-        return $method->invoke($cdo, $entities);
+        $normalize = new ReflectionMethod(CDO::class, 'normalizeRow');
+
+        $groups = [];
+        foreach ($entities as $entity) {
+            $row = $normalize->invoke($cdo, $entity);
+            $groups[implode(',', array_keys($row))][] = $row;
+        }
+
+        return $groups;
     }
 
     public function testHomogeneousRowsFormSingleGroup(): void

@@ -100,22 +100,22 @@ Throws {@see CDOException} on failure.
 
 ---
 
-## insertGroup — Batch Insert
+## insertBatch — Batch Insert
 
 ```php
-public function insertGroup(string $table, array $entities, int $chunkSize = 1000): int
+public function insertBatch(string $table, iterable $entities, int $chunkSize = 1000): int
 ```
 
-Inserts many rows efficiently.  The array is split into chunks to avoid
-exceeding the maximum placeholder count or packet size.
+Inserts many rows, sent to the server in batches.
 
+- `$entities` is any `iterable` — an array, a generator, any `Traversable`.
 - `null` values in each entity are excluded from that row's INSERT.
-- Rows are grouped by their column signature first (rows sharing the same set
-  of non-null columns are batched together), so a mix of shapes never produces
-  a column/value count mismatch. Rows are re-ordered by group as a result.
-- Each group-chunk is inserted in a single `INSERT INTO … VALUES (…), (…), …`
-  statement.
-- The default chunk size is **1 000** rows per query.
+- Rows are buffered by their column signature (rows sharing the same set of
+  non-null columns batch together), so a mix of shapes never produces a
+  column/value count mismatch. Rows are re-ordered by shape as a result.
+- Each batch is one `INSERT INTO … VALUES (…), (…), …` statement.
+- The default batch size is **1 000** rows per query. Anything below 1 means a
+  statement per row.
 - Returns the total number of inserted rows — a plain INSERT reports this row
   count identically on PostgreSQL, MySQL and MariaDB.
 
@@ -126,12 +126,43 @@ $users = [
     // ... thousands more
 ];
 
-$inserted = $cdo->insertGroup('users', $users);              // chunks of 1 000
-$inserted = $cdo->insertGroup('users', $users, chunkSize: 500);  // smaller chunks
+$inserted = $cdo->insertBatch('users', $users);                  // batches of 1 000
+$inserted = $cdo->insertBatch('users', $users, chunkSize: 500);  // smaller batches
 ```
 
-Throws {@see CDOException} if any chunk fails, or if a row has no non-null
-columns (nothing to insert).
+### Memory
+
+A batch is issued as soon as its buffer fills, so peak memory follows
+`$chunkSize` rather than the size of the job. Feed a generator and a million
+rows cost the same as a thousand:
+
+```php
+$cdo->insertBatch('users', (function () {
+    $csv = fopen('users.csv', 'r');
+    while (($line = fgetcsv($csv)) !== false) {
+        yield ['name' => $line[0], 'email' => $line[1]];
+    }
+    fclose($csv);
+})());
+```
+
+Measured on 200 000 rows: **1.5 MiB** peak, against 147 MiB when the rows were
+all built up front — the row-to-array conversion is roughly 4.4× the cost of the
+objects it converts, and it used to happen for every row before the first
+statement was sent.
+
+Passing an array still works, and still costs whatever that array costs; the
+generator is what removes the other half.
+
+### Failure
+
+Throws `CDOException` if a batch fails, or if a row has no non-null columns
+(nothing to insert).
+
+Batches are sent as they fill, so a failure leaves the batches before it already
+committed. Wrap the call in `transaction()` when the whole job must be
+all-or-nothing — that is left to the caller, because holding a million rows in
+one transaction is not always the right trade.
 
 ---
 
@@ -276,21 +307,23 @@ Throws {@see CDOException} if `conflictColumns` is empty or query fails.
 
 ---
 
-## upsertGroup — Batch Upsert
+## upsertBatch — Batch Upsert
 
 ```php
-public function upsertGroup(
-    string  $table,
-    array   $entities,
-    array   $conflictColumns,
-    ?array  $updateColumns = null,
-    int     $chunkSize = 500
+public function upsertBatch(
+    string    $table,
+    iterable  $entities,
+    array     $conflictColumns,
+    ?array    $updateColumns = null,
+    int       $chunkSize = 500
 ): void
 ```
 
-Same semantics as `upsert`, but for arrays of records.  Rows are grouped by
-column signature and then split into chunks (default **500** per query) to
-avoid database limits.
+Same semantics as `upsert`, but for many records. `$entities` is any `iterable`
+— array, generator, any `Traversable`. Rows are buffered by column signature and
+each batch is issued as it fills (default **500** per query), so peak memory
+follows `$chunkSize` and not the size of the job; see the memory notes under
+[`insertBatch`](#insertbatch--batch-insert).
 
 Returns `void` by design: unlike a plain INSERT, an upsert's affected-row count
 is not comparable across drivers — MySQL/MariaDB report 2 per updated row
@@ -302,7 +335,7 @@ The `:new` / `:current` placeholder tokens work identically.
 
 ```php
 // Inventory sync — accumulate quantity, always take latest cost:
-$cdo->upsertGroup(
+$cdo->upsertBatch(
     'inventory',
     $stockItems,
     ['warehouse_id', 'product_id'],
@@ -315,7 +348,25 @@ $cdo->upsertGroup(
 );
 ```
 
-Expressions for `$updateColumns`:
+### `$updateColumns` is a map, not a list
+
+It maps **column => expression**, and a plain list is refused:
+
+```php
+['qty' => ':new']            // ✅ replace qty with the incoming value
+['qty', 'created_at']        // ❌ CDOException — this is Laravel's shape, not ours
+[]  or  null                 // ✅ ignore conflicts (DO NOTHING / INSERT IGNORE)
+```
+
+The list form is a natural thing to write — Laravel's `upsert()` takes exactly
+that for the same argument — so it is rejected with a message naming the column
+and the corrected call, rather than reaching the database as `SET 0 = qty` and
+coming back as `no such column: 0`.
+
+It is not accepted as shorthand on purpose: the shorthand would only ever cover
+the trivial `:new` case, so the map has to be learned the first time an
+expression is needed anyway, and two accepted shapes would have to be carried
+forever.
 
 | Expression | Effect |
 |-----------|--------|
@@ -326,7 +377,13 @@ Expressions for `$updateColumns`:
 | `'COALESCE(:new, :current)'` | Use incoming if not null, else keep current |
 | `'NOW()'` | Set to current database timestamp (no token needed) |
 
-Throws {@see CDOException} if `conflictColumns` is empty or any chunk fails.
+### Failure
+
+Throws `CDOException` if `conflictColumns` is empty, if `$updateColumns` is a
+list, or if a batch fails. The first two are checked before any row is touched.
+
+As with `insertBatch`, batches are sent as they fill, so a later failure leaves
+earlier batches committed — wrap the call in `transaction()` for all-or-nothing.
 
 ---
 
@@ -428,5 +485,5 @@ identifier is skipped silently, leaving the session at the server default.
 CDO uses a PSR-3 logger (keyed `'CDO'` in `LoggerRegistry`) and logs at
 `DEBUG` level:
 - Connection DSN on `__construct`
-- Query string for every `insert`, `insertGroup`, `update`, `delete`,
-  `upsert`, `upsertGroup` call
+- Query string for every `insert`, `insertBatch`, `update`, `delete`,
+  `upsert`, `upsertBatch` call

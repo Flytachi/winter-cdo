@@ -3,7 +3,7 @@
 All comparison operators share the same contract:
 
 - Accept a **column name** (raw string, injected as-is into SQL)
-- Accept a **value** — either a scalar or a [`CDOBind`](01-cdobind.md)
+- Accept a **value** — either a scalar or a [`CDOBind`](06-cdobind.md)
 - Return a new `Qb` instance with the condition and its bind(s)
 
 > **Security — column names must be trusted identifiers**
@@ -224,7 +224,7 @@ Qb::nsEq('deleted_at', $nullBind)
 ## Combining comparisons
 
 Comparison operators produce single-condition `Qb` instances.  Combine them
-with [logical operators](07-logical-operators.md):
+with [logical operators](12-logical-operators.md):
 
 ```php
 Qb::and(
@@ -236,4 +236,4 @@ Qb::and(
 ```
 
 > **Tip — range shorthand:** the above age range can also be written as
-> `Qb::between('age', 18, 65)` — see [06-range-operators.md](06-range-operators.md).
+> `Qb::between('age', 18, 65)` — see [11-range-operators.md](11-range-operators.md).

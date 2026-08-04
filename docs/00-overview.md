@@ -28,8 +28,8 @@ ConnectionPool
     └── caches config instances, returns CDO on demand
 
 CDO (extends PDO)
-    ├── insert / insertGroup
-    ├── upsert / upsertGroup
+    ├── insert / insertBatch
+    ├── upsert / upsertBatch
     ├── update
     └── delete
             └── uses CDOStatement (type-aware binding)

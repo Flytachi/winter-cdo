@@ -37,6 +37,11 @@ in `src/`.
 - Use `declare(strict_types=1);` in every PHP file.
 - Public methods are documented with PHPDoc, including `@param`, `@return` and
   `@throws`.
+- **The package targets PHP 8.3, and that applies to `tests/` too.** Syntax
+  introduced later will parse locally on a newer PHP and fail for everyone on the
+  minimum version — `new Foo()->bar()` (8.4) is the easy one to slip in; write
+  `(new Foo())->bar()`. The style check does not catch this, only running the suite
+  on 8.3 does.
 
 ## Tests
 

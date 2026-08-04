@@ -40,7 +40,7 @@ use Throwable;
  * $deleted = $cdo->delete('users', Qb::eq('id', 1));
  *
  * // Batch insert
- * $cdo->insertGroup('users', $usersArray, chunkSize: 500);
+ * $cdo->insertBatch('users', $usersArray, chunkSize: 500);
  * ```
  *
  * @package Flytachi\Winter\Cdo\Connection
@@ -210,49 +210,75 @@ class CDO extends PDO
     }
 
     /**
-     * Insert multiple records into the database
+     * Insert many records, sent to the server in batches.
      *
-     * Performs batch insert with automatic chunking to avoid hitting
-     * database limits (max placeholders, packet size).
+     * Rows are buffered per column signature and a batch is issued as soon as one
+     * fills, so peak memory follows `$chunkSize` rather than the size of the job:
+     * a generator of a million rows costs the same as one of a thousand. Chunking
+     * also keeps each statement inside the server's limits (max placeholders,
+     * packet size).
      *
-     * Note: NULL values are automatically excluded from each record.
+     * `$entities` is any `iterable` — an array, a generator, any `Traversable`:
      *
-     * @param string $table Table name
-     * @param array $entities Array of entities (objects or arrays)
-     * @param int $chunkSize Number of records per INSERT query (default: 1000)
-     *
-     * @return int Total number of inserted rows. For a plain INSERT this row
-     *             count is reported identically by PostgreSQL, MySQL and MariaDB.
-     *
-     * @throws CDOException If any insert fails
-     *
-     * Example:
      * ```
-     * $users = [
+     * $cdo->insertBatch('users', [
      *     ['name' => 'John', 'email' => 'john@example.com'],
      *     ['name' => 'Jane', 'email' => 'jane@example.com'],
-     *     // ... thousands more
-     * ];
+     * ]);
      *
-     * // Insert with default chunk size (1000)
-     * $inserted = $cdo->insertGroup('users', $users);
+     * // Streamed: nothing but the current batch is ever held in memory.
+     * $cdo->insertBatch('users', (function () {
+     *     foreach (fopen('users.csv', 'r') as $line) {
+     *         yield ['name' => $line[0], 'email' => $line[1]];
+     *     }
+     * })());
      *
-     * // Insert with custom chunk size
-     * $inserted = $cdo->insertGroup('users', $users, chunkSize: 500);
+     * $cdo->insertBatch('users', $rows, chunkSize: 500);
      * ```
+     *
+     * NULL values are dropped from each row, so rows differing only in which
+     * columns are null still insert correctly — see {@see normalizeRow()}.
+     *
+     * **Partial writes on failure.** Batches are sent as they fill, so a row that
+     * fails validation, or a batch the server rejects, leaves the batches before
+     * it already committed. Wrap the call in {@see transaction()} when the whole
+     * job must be all-or-nothing; that is the caller's choice, because holding a
+     * million rows in one transaction is not always the right trade.
+     *
+     * @param string $table Table name.
+     * @param iterable<object|array<string, mixed>> $entities Rows to insert.
+     * @param int $chunkSize Rows per INSERT statement (default: 1000). Anything
+     *   below 1 means a statement per row, which is the natural reading of "batch
+     *   of zero" and needs no clamping.
+     *
+     * @return int Total rows inserted. For a plain INSERT this count is reported
+     *             identically by PostgreSQL, MySQL and MariaDB.
+     *
+     * @throws CDOException If a row has no non-null columns, or an insert fails.
      */
-    final public function insertGroup(string $table, array $entities, int $chunkSize = 1000): int
+    final public function insertBatch(string $table, iterable $entities, int $chunkSize = 1000): int
     {
-        if (empty($entities)) {
-            return 0;
+        $affected = 0;
+
+        // One buffer per column signature: rows of the same shape combine into one
+        // multi-row statement, rows of another shape form their own (see
+        // normalizeRow()). Each buffer is flushed the moment it fills, which is what
+        // keeps memory bounded by $chunkSize instead of by the number of rows.
+        $buffers = [];
+        foreach ($entities as $entity) {
+            $row       = $this->normalizeRow($entity);
+            $signature = implode(',', array_keys($row));
+
+            $buffers[$signature][] = $row;
+            if (count($buffers[$signature]) >= $chunkSize) {
+                $affected += $this->insertChunk($table, $buffers[$signature]);
+                $buffers[$signature] = [];
+            }
         }
 
-        // Rows are grouped by their column signature first, so each chunk that
-        // reaches insertChunk() is homogeneous (see groupRowsBySignature()).
-        $affected = 0;
-        foreach ($this->groupRowsBySignature($entities) as $rows) {
-            foreach (array_chunk($rows, $chunkSize) as $chunk) {
-                $affected += $this->insertChunk($table, $chunk);
+        foreach ($buffers as $rows) {
+            if ($rows !== []) {
+                $affected += $this->insertChunk($table, $rows);
             }
         }
 
@@ -306,6 +332,7 @@ class CDO extends PDO
         if (empty($conflictColumns)) {
             throw new CDOException('conflictColumns is empty');
         }
+        $this->assertUpdateColumns($updateColumns);
 
         $data = is_object($entity) ? get_object_vars($entity) : $entity;
         foreach ($data as $key => $value) {
@@ -518,12 +545,25 @@ class CDO extends PDO
      * | `COALESCE(:new, :current)` | New value or keep current | `COALESCE(EXCLUDED.column, table.column)` |
      * | `NOW()` | SQL function (no placeholder) | `NOW()` |
      *
+     * ## Memory
+     *
+     * `$entities` is any `iterable` — an array, a generator, any `Traversable`. Rows
+     * are buffered per column shape and a batch is issued as soon as one fills, so
+     * peak memory follows `$chunkSize` rather than the size of the job. Streaming a
+     * million rows costs the same as a thousand; see {@see insertBatch()}.
+     *
+     * **Partial writes on failure.** Batches are sent as they fill, so a row that
+     * fails validation, or a batch the server rejects, leaves the batches before it
+     * already committed. Wrap the call in {@see transaction()} when the whole job
+     * must be all-or-nothing.
+     *
      * @param string $table Table name
-     * @param array $entities Array of entities (objects or arrays)
+     * @param iterable<object|array<string, mixed>> $entities Rows to upsert
      * @param array $conflictColumns Columns that define uniqueness (e.g., ['id'] or ['warehouse_id', 'product_id'])
      * @param array|null $updateColumns Columns to update on conflict: ['column' => 'expression']
      *                                   If null or empty - conflicts are ignored (DO NOTHING / INSERT IGNORE)
-     * @param int $chunkSize Records per query (default: 500)
+     * @param int $chunkSize Rows per statement (default: 500). Anything below 1 means
+     *                       a statement per row.
      *
      * Returns void by design: unlike a plain INSERT, the affected-row count of
      * an upsert is not comparable across drivers — MySQL/MariaDB report 2 per
@@ -537,7 +577,7 @@ class CDO extends PDO
      * ```
      * // PostgreSQL: ON CONFLICT (email) DO NOTHING
      * // MySQL: INSERT IGNORE INTO ...
-     * $cdo->upsertGroup(
+     * $cdo->upsertBatch(
      *     'users',
      *     $users,
      *     ['email']  // no updateColumns - just ignore duplicates
@@ -546,7 +586,7 @@ class CDO extends PDO
      *
      * Example: Basic upsert (replace values)
      * ```
-     * $cdo->upsertGroup(
+     * $cdo->upsertBatch(
      *     'users',
      *     $users,
      *     ['email'],
@@ -559,7 +599,7 @@ class CDO extends PDO
      *
      * Example: Inventory update (accumulate quantity)
      * ```
-     * $cdo->upsertGroup(
+     * $cdo->upsertBatch(
      *     'inventory',
      *     $items,
      *     ['warehouse_id', 'product_id'],
@@ -573,7 +613,7 @@ class CDO extends PDO
      *
      * Example: Price update (take minimum)
      * ```
-     * $cdo->upsertGroup(
+     * $cdo->upsertBatch(
      *     'products',
      *     $products,
      *     ['sku'],
@@ -584,25 +624,36 @@ class CDO extends PDO
      * );
      * ```
      */
-    final public function upsertGroup(
+    final public function upsertBatch(
         string $table,
-        array $entities,
+        iterable $entities,
         array $conflictColumns,
         ?array $updateColumns = null,
         int $chunkSize = 500
     ): void {
-        if (empty($entities)) {
-            return;
-        }
         if (empty($conflictColumns)) {
             throw new CDOException('conflictColumns is empty');
         }
+        $this->assertUpdateColumns($updateColumns);
 
-        // Rows are grouped by their column signature first, so each chunk that
-        // reaches upsertChunk() is homogeneous (see groupRowsBySignature()).
-        foreach ($this->groupRowsBySignature($entities) as $rows) {
-            foreach (array_chunk($rows, $chunkSize) as $chunk) {
-                $this->upsertChunk($table, $chunk, $conflictColumns, $updateColumns);
+        // One buffer per column signature, flushed the moment it fills — the same
+        // shape as insertBatch(), for the same reason: peak memory must follow the
+        // batch, not the number of rows.
+        $buffers = [];
+        foreach ($entities as $entity) {
+            $row       = $this->normalizeRow($entity);
+            $signature = implode(',', array_keys($row));
+
+            $buffers[$signature][] = $row;
+            if (count($buffers[$signature]) >= $chunkSize) {
+                $this->upsertChunk($table, $buffers[$signature], $conflictColumns, $updateColumns);
+                $buffers[$signature] = [];
+            }
+        }
+
+        foreach ($buffers as $rows) {
+            if ($rows !== []) {
+                $this->upsertChunk($table, $rows, $conflictColumns, $updateColumns);
             }
         }
     }
@@ -791,54 +842,49 @@ class CDO extends PDO
     }
 
     /**
-     * Group rows by their column signature for dynamic batch insert / upsert.
+     * Turn one entity into the row that goes into a batch.
      *
-     * NULL values are stripped per row so the database applies column DEFAULTs
-     * and auto-increment — matching single-row {@see insert()} semantics. Rows
-     * are then keyed by the canonical (sorted) list of their remaining columns:
-     * rows that share the same set of non-null columns land in the same group
-     * and can be combined into one multi-row statement, while rows of a
-     * different shape form their own group.
+     * NULL values are stripped so the database applies column DEFAULTs and
+     * auto-increment — matching single-row {@see insert()} semantics. The
+     * remaining columns are sorted, so two rows carrying the same set of non-null
+     * columns produce the same key order and can share one multi-row statement,
+     * while rows of a different shape are buffered separately by the caller.
      *
      * This mirrors Hibernate's `@DynamicInsert` behaviour and prevents the
      * column/value count mismatch that a single heterogeneous VALUES list would
      * otherwise produce (e.g. `(a) VALUES (1,2),(3)`).
      *
-     * Note: grouping re-orders rows — all rows of the first signature are
-     * emitted before the next. For plain batch inserts this is irrelevant, but
-     * do not rely on auto-increment ids following the input array order when
+     * Note: buffering per shape re-orders rows — a batch is sent when its own
+     * buffer fills, independently of the others. For plain batch inserts this is
+     * irrelevant, but do not rely on auto-increment ids following input order when
      * rows have differing column shapes.
      *
-     * @param array $entities Raw entities (objects or arrays).
-     * @return array<string, array<int, array<string, mixed>>> signature => normalized rows.
-     * @throws CDOException If a row has no non-null columns (nothing to insert).
+     * @param object|array<string, mixed> $entity Raw entity.
+     * @return array<string, mixed> Normalized row, column-sorted.
+     * @throws CDOException If the row has no non-null columns (nothing to insert).
      */
-    private function groupRowsBySignature(array $entities): array
+    private function normalizeRow(object|array $entity): array
     {
-        $groups = [];
-        foreach ($entities as $entity) {
-            $items = is_object($entity) ? get_object_vars($entity) : $entity;
-            foreach ($items as $key => $value) {
-                if (is_null($value)) {
-                    unset($items[$key]);
-                }
+        $items = is_object($entity) ? get_object_vars($entity) : $entity;
+        foreach ($items as $key => $value) {
+            if (is_null($value)) {
+                unset($items[$key]);
             }
-            if (empty($items)) {
-                throw new CDOException('Cannot insert a row with no non-null columns');
-            }
-            ksort($items);
-            $signature = implode(',', array_keys($items));
-            $groups[$signature][] = $items;
         }
+        if (empty($items)) {
+            throw new CDOException('Cannot insert a row with no non-null columns');
+        }
+        ksort($items);
 
-        return $groups;
+        return $items;
     }
+
 
     /**
      * Insert a homogeneous chunk of already-normalized rows.
      *
      * Every row shares the same column set (guaranteed by
-     * {@see groupRowsBySignature()}), so the column list is taken once from the
+     * {@see normalizeRow()}), so the column list is taken once from the
      * first row and every tuple has a matching value count.
      *
      * @param string $table Table name
@@ -887,7 +933,7 @@ class CDO extends PDO
      * Upsert a homogeneous chunk of already-normalized rows.
      *
      * Every row shares the same column set (guaranteed by
-     * {@see groupRowsBySignature()}), so the column list is taken once from the
+     * {@see normalizeRow()}), so the column list is taken once from the
      * first row and every tuple has a matching value count.
      *
      * Note: an `updateColumns` expression referencing a column absent from this
@@ -998,6 +1044,52 @@ class CDO extends PDO
      * ]
      * ```
      */
+    /**
+     * Reject a plain list where a column => expression map is expected.
+     *
+     * `['qty', 'created_at']` is a natural thing to write — it is exactly the shape
+     * Laravel's `upsert()` takes for the same argument — but here it means nothing:
+     * the keys become 0 and 1, and the database answers `no such column: 0` from deep
+     * inside the generated SQL, pointing at the schema instead of at the call.
+     *
+     * Both shapes could be accepted (an integer key is unambiguously a list), and that
+     * was considered. It was turned down because the shorthand only ever covers the
+     * trivial `:new` case: the moment an expression is needed — `:current + :new`,
+     * `NOW()`, `LEAST(:current, :new)` — the map is required anyway. So the saving is a
+     * few characters, while the cost is two accepted shapes to document, test and
+     * recognise in review, forever. One shape, and an error that teaches the other half
+     * of the API, is the better trade.
+     *
+     * An empty map or null is left alone: that is the documented way to say
+     * DO NOTHING / INSERT IGNORE.
+     *
+     * @throws CDOException If any key is an integer, i.e. a list was passed.
+     */
+    private function assertUpdateColumns(?array $updateColumns): void
+    {
+        if ($updateColumns === null || $updateColumns === []) {
+            return;
+        }
+
+        foreach ($updateColumns as $key => $value) {
+            if (!is_int($key)) {
+                continue;
+            }
+
+            $suggestion = is_string($value)
+                ? sprintf("['%s' => ':new']", $value)
+                : "['column' => ':new']";
+
+            throw new CDOException(sprintf(
+                'updateColumns expects a column => expression map, got a plain list at '
+                . 'position %d. Did you mean %s? Use \':new\' for the incoming value and '
+                . '\':current\' for the stored one; pass an empty array to ignore conflicts.',
+                $key,
+                $suggestion,
+            ));
+        }
+    }
+
     private function buildUpdateSetString(?array $updateColumns, string $driver, string $table): string
     {
         if (empty($updateColumns)) {

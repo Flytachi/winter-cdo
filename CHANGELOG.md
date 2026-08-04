@@ -11,6 +11,72 @@ for their history.
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-08-05
+
+Batch writes no longer hold the whole job in memory, and the two batch methods
+are renamed to say what they do.
+
+### Changed — BREAKING
+
+- **`CDO::insertGroup()` → `CDO::insertBatch()`**, and
+  **`CDO::upsertGroup()` → `CDO::upsertBatch()`.** No alias is kept: two names
+  for one method would outlive the migration. "Batch" is the word both canons
+  use for grouped database execution — JDBC's `addBatch()`/`executeBatch()`,
+  Spring's `batchUpdate()`, Yii's `batchInsert()` — and it matches what the
+  `$chunkSize` parameter actually does.
+- **`$entities` widened from `array` to `iterable`** in both methods. Arrays keep
+  working unchanged; generators and any `Traversable` are now accepted too.
+- **Rows are streamed instead of materialised.** Previously every row was
+  converted and buffered before the first statement was sent, so peak memory grew
+  with the size of the job. Rows are now buffered per column shape and each batch
+  is issued as its buffer fills. Measured on 200 000 rows: **1.5 MiB** peak versus
+  **147 MiB** before — the array conversion alone costs ~4.4× the objects it
+  converts, and it used to happen for all rows up front.
+- **A failure now leaves earlier batches committed.** The eager version validated
+  every row before writing anything, so a malformed row wrote nothing at all.
+  Batches are sent as they fill, so that guarantee is gone; wrap the call in
+  `transaction()` when the whole job must be all-or-nothing. (Partial writes were
+  always possible when the *server* rejected a later chunk — this extends the same
+  behaviour to row validation.)
+- **`upsertBatch()` validates its configuration before its data.** An empty
+  `conflictColumns` now throws even when the collection turns out to be empty;
+  previously the empty-collection check ran first and hid the mistake.
+- `insertBatch()` no longer returns early on empty input — an `iterable` cannot be
+  inspected without consuming it. It still returns `0`, just by completing the pass.
+
+### Added
+
+- **`$updateColumns` now rejects a plain list.** `['qty', 'created_at']` is the
+  shape Laravel's `upsert()` takes for the same argument, and it used to reach the
+  database as `SET 0 = qty`, surfacing as `no such column: 0` — a message pointing
+  at the schema rather than the call. It now throws a `CDOException` naming the
+  column and showing the corrected call, and mentioning `:current`. The list is
+  *not* accepted as shorthand: it would only ever cover the trivial `:new` case,
+  so the map has to be learned at the first real expression anyway, leaving two
+  shapes to carry forever for no gain.
+- `chunkSize` below 1 is documented as one statement per row (it always behaved
+  that way; a clamp that changed nothing was removed).
+
+### Removed
+
+- `groupRowsBySignature()` (private) — replaced by `normalizeRow()`, which does
+  the same work one row at a time.
+
+### Migration
+
+```php
+// before
+$cdo->insertGroup('users', $rows);
+$cdo->upsertGroup('inventory', $rows, ['sku'], ['qty' => ':new']);
+
+// after
+$cdo->insertBatch('users', $rows);
+$cdo->upsertBatch('inventory', $rows, ['sku'], ['qty' => ':new']);
+```
+
+Nothing else changes for an array caller. To take the memory win, hand the method
+a generator instead of an array.
+
 ## [3.2.0] - 2026-07-16
 
 ### Added
@@ -58,5 +124,6 @@ for their history.
   the one propagated. This matters when a transaction was ended out-of-band
   (e.g. a DDL statement causing an implicit commit on MySQL/MariaDB/Oracle).
 
-[Unreleased]: https://github.com/flytachi/winter-cdo/compare/v3.2.0...HEAD
+[Unreleased]: https://github.com/flytachi/winter-cdo/compare/v4.0.0...HEAD
+[4.0.0]: https://github.com/flytachi/winter-cdo/releases/tag/v4.0.0
 [3.2.0]: https://github.com/flytachi/winter-cdo/releases/tag/v3.2.0

@@ -5,7 +5,7 @@ individual filters into complex `WHERE` clauses.
 
 All four operators described here are **immutable** — they return a new `Qb`
 instance without modifying their inputs.  For in-place mutation, see
-[08-mutable-methods.md](08-mutable-methods.md).
+[13-mutable-methods.md](13-mutable-methods.md).
 
 ---
 

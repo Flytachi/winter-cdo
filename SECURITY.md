@@ -7,9 +7,13 @@ a supported version before reporting.
 
 | Version | Supported |
 |---------|:---------:|
+| 4.0.x   | ✅ |
 | 3.2.x   | ✅ |
-| 3.1.x   | ⚠️ critical fixes only |
-| < 3.1   | ❌ |
+| < 3.2   | ❌ |
+
+The `3.2.x` line stays supported alongside `4.x`: the only breaking change in 4.0
+is the batch-method rename, so a project that has not migrated should not be cut
+off from security fixes over it.
 
 ## Reporting a Vulnerability
 
@@ -37,7 +41,7 @@ issues accurately.
 - **Values are always bound** as prepared-statement parameters — never
   interpolated into SQL. Passing user input as a *value* is safe.
 - **Identifiers in CDO DML methods are quoted.** Table and column names passed to
-  `insert`, `insertGroup`, `update`, `delete`, `upsert`, `upsertGroup` are quoted
+  `insert`, `insertBatch`, `update`, `delete`, `upsert`, `upsertBatch` are quoted
   for the active driver, so they are safe even if built dynamically.
 - **`Qb` column names are NOT sanitised.** The `$column` argument of every `Qb`
   method (`eq`, `gt`, `in`, `like`, `between`, …), the raw fragment of `Qb::raw()`,
