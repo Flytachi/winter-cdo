@@ -717,6 +717,8 @@ final class Qb
      * @param array<int|string, CDOBind|bool|int|float|string|null> $binds
      *        Bind values: `CDOBind` objects and/or `name => value` pairs.
      * @return Qb
+     *
+     * @link https://winterframe.net/packages/cdo/qb-operators#raw The one place safety is yours
      */
     public static function raw(string $query, array $binds = []): Qb
     {

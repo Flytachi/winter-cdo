@@ -33,7 +33,7 @@ use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
  * @package Flytachi\Winter\Cdo\Config
  * @author  Flytachi
  *
- * @link https://winterframe.net/packages/cdo/configuration MySQL / MariaDB config
+ * @link https://winterframe.net/packages/cdo/configuration#mysqldbconfig MySQL / MariaDB config
  */
 abstract class MySqlDbConfig extends BaseDbConfig
 {

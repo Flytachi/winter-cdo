@@ -32,7 +32,7 @@ use PDOStatement;
  * @package Flytachi\Winter\Cdo\Connection
  * @author  Flytachi
  *
- * @link https://winterframe.net/packages/cdo/parameter-binding Type-aware binding and object values
+ * @link https://winterframe.net/packages/cdo/configuration#cdostatement Type-aware binding and object values
  */
 class CDOStatement
 {

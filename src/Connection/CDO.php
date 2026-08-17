@@ -126,6 +126,8 @@ class CDO extends PDO
      *     // MariaDB-specific behaviour (e.g. INSERT ... RETURNING)
      * }
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#getdrivername What each driver name changes
      */
     public function getDriverName(): string
     {
@@ -162,6 +164,8 @@ class CDO extends PDO
      * $user->email = 'john@example.com';
      * $userId = $cdo->insert('users', $user);
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#insert Returned id, null handling, object entities
      */
     final public function insert(string $table, object|array $entity): mixed
     {
@@ -257,6 +261,8 @@ class CDO extends PDO
      *             identically by PostgreSQL, MySQL and MariaDB.
      *
      * @throws CDOException If a row has no non-null columns, or an insert fails.
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#insertbatch Streaming input, chunk size, row grouping
      */
     final public function insertBatch(string $table, iterable $entities, int $chunkSize = 1000): int
     {
@@ -324,6 +330,8 @@ class CDO extends PDO
      * // Insert only if not exists (ignore duplicate)
      * $cdo->upsert('users', $user, ['email']);
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#upsert Conflict columns and the update expression
      */
     final public function upsert(
         string $table,
@@ -436,6 +444,8 @@ class CDO extends PDO
      *     )
      * );
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#update Building the condition, affected rows
      */
     final public function update(string $table, object|array $entity, Qb $qb): int
     {
@@ -500,6 +510,8 @@ class CDO extends PDO
      * // Delete using IN
      * $deleted = $cdo->delete('users', Qb::in('id', [1, 2, 3]));
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#delete Condition required, deleted row count
      */
     final public function delete(string $table, Qb $qb): int
     {
@@ -625,6 +637,8 @@ class CDO extends PDO
      *     ]
      * );
      * ```
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#upsertbatch Chunked upsert, and why it returns void
      */
     final public function upsertBatch(
         string $table,
@@ -789,6 +803,8 @@ class CDO extends PDO
      *
      * @param mixed $driver Database driver name
      * @param string $tz PHP timezone identifier
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#applydatabasetimezone Session timezone per driver
      */
     public function applyDatabaseTimezone(mixed $driver, string $tz): void
     {
@@ -823,6 +839,8 @@ class CDO extends PDO
      * @param Closure $callback Callback to run inside the transaction
      *
      * @throws Throwable Any exception thrown by the callback (after rollback)
+     *
+     * @link https://winterframe.net/packages/cdo/cdo-api#transaction Commit on return, rollback on throw
      */
     public function transaction(Closure $callback): void
     {

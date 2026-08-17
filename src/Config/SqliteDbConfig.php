@@ -34,7 +34,7 @@ use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
  * @package Flytachi\Winter\Cdo\Config
  * @author  Flytachi
  *
- * @link https://winterframe.net/packages/cdo/configuration SQLite config, file or in-memory
+ * @link https://winterframe.net/packages/cdo/configuration#sqlitedbconfig SQLite config, file or in-memory
  */
 abstract class SqliteDbConfig extends BaseDbConfig
 {

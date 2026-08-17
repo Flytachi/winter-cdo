@@ -38,7 +38,7 @@ use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
  * @package Flytachi\Winter\Cdo\Config
  * @author  Flytachi
  *
- * @link https://winterframe.net/packages/cdo/configuration PostgreSQL config, schema and SSL mode
+ * @link https://winterframe.net/packages/cdo/configuration#pgdbconfig PostgreSQL config, schema and SSL mode
  */
 abstract class PgDbConfig extends BaseDbConfig
 {

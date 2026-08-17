@@ -29,7 +29,7 @@ use Psr\Log\LoggerInterface;
  * @package Flytachi\Winter\Cdo
  * @author  Flytachi
  *
- * @link https://winterframe.net/packages/cdo/configuration Registering configs and getting a connection
+ * @link https://winterframe.net/packages/cdo/configuration#connectionpool Registering configs and getting a connection
  */
 final class ConnectionPool
 {
