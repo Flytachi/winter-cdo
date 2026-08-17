@@ -35,6 +35,8 @@ use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
  *
  * @package Flytachi\Winter\Cdo\Config
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/configuration Driver-agnostic config, for anything else
  */
 abstract class DbConfig extends BaseDbConfig
 {

@@ -46,6 +46,8 @@ use Throwable;
  * @package Flytachi\Winter\Cdo\Connection
  * @author Flytachi
  * @version 2.5
+ *
+ * @link https://winterframe.net/packages/cdo/cdo-api insert / update / delete / upsert and transactions
  */
 class CDO extends PDO
 {

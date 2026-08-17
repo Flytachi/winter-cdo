@@ -51,30 +51,7 @@ Qb (Query Builder)
 
 ---
 
-## Documentation Index
+## Where to go next
 
-### Connection
-
-| # | File | Contents |
-|---|------|----------|
-| 01 | [01-configuration.md](01-configuration.md) | Config classes (`MySqlDbConfig`, `PgDbConfig`, `SqliteDbConfig`, `DbConfig`) and inline Call classes |
-| 02 | [02-connection-pool.md](02-connection-pool.md) | `ConnectionPool` — config registry, CDO factory, health checks |
-| 03 | [03-cdo.md](03-cdo.md) | `CDO` — all DML methods: insert, update, delete, upsert, batch |
-| 04 | [04-cdo-statement.md](04-cdo-statement.md) | `CDOStatement` — type-aware binding, object serialisation |
-| 05 | [05-exceptions.md](05-exceptions.md) | `CDOException` — error handling, SQLSTATE reference |
-
-### Qb — Query Builder
-
-| # | File | Contents |
-|---|------|----------|
-| 06 | [06-cdobind.md](06-cdobind.md) | `CDOBind` — named parameter container, reuse across conditions |
-| 07 | [07-comparison-operators.md](07-comparison-operators.md) | `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `nsEq` |
-| 08 | [08-null-checks.md](08-null-checks.md) | `isNull`, `isNotNull` |
-| 09 | [09-set-operators.md](09-set-operators.md) | `in`, `notIn` — including empty-array behaviour |
-| 10 | [10-pattern-matching.md](10-pattern-matching.md) | `like`, `notLike` — wildcards, DB compatibility |
-| 11 | [11-range-operators.md](11-range-operators.md) | `between`, `notBetween`, `betweenBy`, `notBetweenBy` |
-| 12 | [12-logical-operators.md](12-logical-operators.md) | `and`, `or`, `xor`, `clip` — operator precedence |
-| 13 | [13-mutable-methods.md](13-mutable-methods.md) | `addAnd`, `addOr`, `addXor` — incremental condition building |
-| 14 | [14-case-expression.md](14-case-expression.md) | `case` — CASE WHEN … THEN … END |
-| 15 | [15-special.md](15-special.md) | `raw` (raw SQL), `empty` (no-op) |
-| 16 | [16-advanced-examples.md](16-advanced-examples.md) | Real-world combinations: e-commerce, RBAC, dynamic filters |
+The page map, with a route for each common question, lives in
+[README.md](README.md) — kept in one place so the two cannot drift apart.

@@ -27,6 +27,8 @@ use Throwable;
  *
  * @package Flytachi\Winter\Cdo\Config\Common
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/configuration Connection lifecycle shared by all configs
  */
 abstract class BaseDbConfig implements DbConfigInterface
 {

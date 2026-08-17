@@ -49,6 +49,8 @@ use InvalidArgumentException;
  *
  * @version 5.0
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/qb-operators Every operator, with the SQL each one emits
  */
 final class Qb
 {

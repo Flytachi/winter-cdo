@@ -4,18 +4,17 @@
 [![PHP Version Require](https://img.shields.io/packagist/php-v/flytachi/winter-cdo.svg?style=flat-square)](https://packagist.org/packages/flytachi/winter-cdo)
 [![Software License](https://img.shields.io/badge/license-MIT-brightgreen.svg)](LICENSE)
 
-**CDO** (Connection Data Object) — an extended PDO wrapper for type-safe,
-parameterised database operations with a composable query builder.
+**CDO** (Connection Data Object) extends PDO with the write operations applications
+actually perform — `insert`, `update`, `delete`, `upsert` and their streaming batch
+variants — and with `Qb`, a composable builder for the `WHERE` clause.
 
-**Full documentation:** https://winterframe.net/packages/cdo
+Every value travels as a bound parameter, so SQL text and data never meet by string
+concatenation. The driver-specific dialect is generated for you (PostgreSQL, MySQL /
+MariaDB, SQLite, Oracle), so the same call works across all of them.
+
+📖 **[Documentation](https://winterframe.net/packages/cdo)** · [Quick start](https://winterframe.net/packages/cdo/quickstart) · [CDO API](https://winterframe.net/packages/cdo/cdo-api) · [Qb operators](https://winterframe.net/packages/cdo/qb-operators)
 
 ---
-
-## Requirements
-
-- PHP >= 8.3
-- ext-pdo
-- psr/log ^3.0
 
 ## Installation
 
@@ -23,7 +22,11 @@ parameterised database operations with a composable query builder.
 composer require flytachi/winter-cdo
 ```
 
-## Supported Databases
+Requires PHP **8.3+**, `ext-pdo` and `psr/log ^3.0`.
+
+---
+
+## Supported databases
 
 | Database | insert | insertBatch | upsert | upsertBatch | update | delete |
 |----------|:------:|:-----------:|:------:|:-----------:|:------:|:------:|
@@ -32,18 +35,15 @@ composer require flytachi/winter-cdo
 | SQLite | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | Oracle | ⚠️ | ✅ | ❌ | ❌ | ✅ | ✅ |
 
-> SQLite uses PostgreSQL-style `ON CONFLICT` upserts. `insert()`/`upsert()` return
-> the last inserted row id via `lastInsertId()` (SQLite is not routed through
-> `RETURNING`). SQLite has no session timezone, so timezone sync is a no-op.
+SQLite uses PostgreSQL-style `ON CONFLICT` upserts; `insert()` / `upsert()` return the
+last inserted id via `lastInsertId()` rather than `RETURNING`, and timezone sync is a
+no-op because SQLite has no session timezone.
 
 ---
 
-## Quick Start
+## Quick start
 
-### 1. Define a configuration
-
-Extend `MySqlDbConfig`, `PgDbConfig` or `SqliteDbConfig` and fill the connection
-details in `setUp()`:
+Declare a database by filling in `setUp()`:
 
 ```php
 use Flytachi\Winter\Cdo\Config\PgDbConfig;
@@ -61,220 +61,143 @@ class AppDb extends PgDbConfig
 }
 ```
 
-For a one-off connection without a dedicated class, use the inline `PgDbCall` /
-`MySqlDbCall` / `SqliteDbCall` / `DbCall` constructors — see
-[Configuration docs](docs/01-configuration.md). SQLite needs no server or
-credentials — `new SqliteDbCall(path: 'app.sqlite')`, or the default `:memory:`
-for an ephemeral database (handy in tests):
+Then ask the pool for a connection and write:
+
+```php
+use Flytachi\Winter\Cdo\ConnectionPool;
+use Flytachi\Winter\Cdo\Qb;
+
+$cdo = ConnectionPool::db(AppDb::class);
+
+$id = $cdo->insert('users', ['name' => 'Alice', 'email' => 'alice@example.com']);
+
+$cdo->update('users', ['name' => 'Alice Smith'], Qb::eq('id', $id));
+$cdo->delete('users', Qb::eq('id', $id));
+```
+
+A one-off connection needs no class — the inline `Call` variants take the credentials
+directly, and SQLite needs none at all:
 
 ```php
 use Flytachi\Winter\Cdo\Config\Call\SqliteDbCall;
 
-$cdo = (new SqliteDbCall())->connection();   // in-memory SQLite
-```
-
-### 2. Get a connection
-
-```php
-$cdo = ConnectionPool::db(AppDb::class);
-```
-
-### 3. Run operations
-
-```php
-use Flytachi\Winter\Cdo\Qb;
-
-// Insert — returns the generated primary key:
-$id = $cdo->insert('users', [
-    'name'  => 'Alice',
-    'email' => 'alice@example.com',
-]);
-
-// Update — returns affected row count:
-$cdo->update('users',
-    ['name' => 'Alice Smith'],
-    Qb::eq('id', $id)
-);
-
-// Delete — returns deleted row count:
-$cdo->delete('users', Qb::eq('id', $id));
-
-// Batch insert — returns the number of inserted rows:
-$inserted = $cdo->insertBatch('users', $usersArray, chunkSize: 500);
-
-// …or stream them: a generator keeps peak memory at one batch, whatever the total.
-$inserted = $cdo->insertBatch('users', (function () use ($csv) {
-    while (($line = fgetcsv($csv)) !== false) {
-        yield ['name' => $line[0], 'email' => $line[1]];
-    }
-})());
-
-// Upsert (insert or update on conflict):
-$cdo->upsert('products',
-    ['sku' => 'ABC-001', 'price' => 9.99, 'stock' => 50],
-    conflictColumns: ['sku'],
-    updateColumns: ['price' => ':new', 'stock' => ':current + :new']
-);
+$cdo = (new SqliteDbCall())->connection();   // in-memory, handy in tests
 ```
 
 ---
 
-## Qb — Query Builder
+## What you get
 
-`Qb` builds safe, parameterised SQL `WHERE` fragments.  Every **value** is bound
-via a named placeholder — no string interpolation, no injection risk.
+- **Write operations, not a query language** — `insert`, `update`, `delete`, `upsert`
+  take a table, an entity and a condition; the SQL is generated per driver.
+- **Streaming batches** — `insertBatch` / `upsertBatch` accept a generator, so peak
+  memory follows the chunk size rather than the size of the job.
+- **A composable `WHERE`** — `Qb` fragments combine with `and` / `or` / `xor`, skip
+  `null`, and parenthesise groups so an inner `OR` cannot break the surrounding `AND`.
+- **Type-aware binding** — the `PDO::PARAM_*` type is derived from the PHP value;
+  objects go through `DateTimeInterface` / `JsonSerializable` / `__toString()`.
+- **Named binds** — one `CDOBind` reused across several conditions stays a single
+  placeholder.
+- **Lazy connections** — a config is instantiated once and cached; the socket opens on
+  first use, with `ping()` / `reconnect()` for long-lived workers.
+- **PSR-3 logging** — give it a logger and each statement, its bindings and its timing
+  are recorded.
 
-> **Column names, however, are injected verbatim** (they cannot be bound).
-> Never pass user input as a column name: `Qb::eq('status', $userInput)` is safe,
-> `Qb::eq($userInput, 'active')` is a SQL-injection vector.
+---
+
+## A taste of Qb
 
 ```php
-// Simple condition:
-Qb::eq('status', 'active')
-// → status = :iqb0
-
-// Compound condition:
-$where = Qb::and(
+Qb::and(
     Qb::eq('status', 'active'),
     Qb::gte('age', 18),
-    Qb::isNull('banned_at'),
-);
-// → status = :iqb0 AND age >= :iqb1 AND banned_at IS NULL
-```
-
-### Operator reference
-
-| Category | Methods | SQL result |
-|----------|---------|-----------|
-| Comparison | `eq`, `neq`, `gt`, `gte`, `lt`, `lte` | `col = :x`, `col != :x`, … |
-| NULL | `isNull`, `isNotNull` | `col IS NULL`, `col IS NOT NULL` |
-| NULL-safe | `nsEq` | `col <=> :x` (MySQL/MariaDB) |
-| Set | `in`, `notIn` | `col IN (:a, :b)`, `col NOT IN (…)` |
-| Pattern | `like`, `notLike` | `col LIKE :x`, `col NOT LIKE :x` |
-| Range | `between`, `notBetween` | `col BETWEEN :a AND :b` |
-| Range (inverted) | `betweenBy`, `notBetweenBy` | `:x BETWEEN col1 AND col2` |
-| Logical | `and`, `or`, `xor` | `a AND b`, `a OR b`, `a XOR b` |
-| Grouping | `clip` | `(condition)` |
-| CASE | `case` | `CASE WHEN … THEN … END` |
-| Raw | `raw` | verbatim SQL with optional binds |
-
-### Operator precedence — always use `clip` with mixed AND/OR
-
-```php
-// ❌ Wrong — SQL reads as (published AND role='editor') OR role='admin':
-Qb::and(
-    Qb::eq('published', true),
-    Qb::or(Qb::eq('role', 'editor'), Qb::eq('role', 'admin')),
-)
-
-// ✅ Correct — clip enforces the right grouping:
-Qb::and(
-    Qb::eq('published', true),
-    Qb::clip(
-        Qb::or(Qb::eq('role', 'editor'), Qb::eq('role', 'admin'))
+    Qb::or(
+        Qb::like('email', '%@example.com'),
+        Qb::in('role', ['admin', 'editor']),
     ),
-)
-// → published IS TRUE AND (role = :iqb0 OR role = :iqb1)
+);
+// (status = :iqb0 AND age >= :iqb1 AND (email LIKE :iqb2 OR role IN (:iqb3, :iqb4)))
 ```
 
-### Dynamic filters
+Optional filters drop out by themselves, because logical operators skip `null`:
 
 ```php
-// null conditions are silently skipped:
-$where = Qb::and(
-    Qb::eq('status', 'active'),
-    $minAge  !== null ? Qb::gte('age', $minAge)   : null,
-    $country !== null ? Qb::eq('country', $country) : null,
-    Qb::in('tag_id', $tagIds),   // skipped when $tagIds is []
+Qb::and(
+    Qb::eq('published', true),
+    $categoryId ? Qb::eq('category_id', $categoryId) : null,
+    $tagIds     ? Qb::in('tag_id', $tagIds)          : null,   // in() throws on []
 );
 ```
 
-### Named binds — share one placeholder across conditions
+> **Values are bound; column names are not.** A column name cannot be a placeholder, so
+> it goes into the SQL verbatim. `Qb::eq('status', $userInput)` is safe;
+> `Qb::eq($userInput, 'active')` is an injection vector — never let user input choose a
+> column without a whitelist.
 
-```php
-$uid = new CDOBind('uid', $currentUserId);
-
-$where = Qb::or(
-    Qb::eq('author_id',   $uid),
-    Qb::eq('reviewer_id', $uid),
-    Qb::eq('assignee_id', $uid),
-);
-// → author_id = :uid OR reviewer_id = :uid OR assignee_id = :uid
-```
-
----
-
-## Upsert Placeholders
-
-| Token | PostgreSQL | MySQL / MariaDB |
-|-------|-----------|----------------|
-| `:new` | `EXCLUDED.column` | `VALUES(column)` |
-| `:current` | `table.column` | `column` |
-
-```php
-$cdo->upsertBatch('inventory', $items,
-    conflictColumns: ['warehouse_id', 'product_id'],
-    updateColumns: [
-        'cost'       => ':new',
-        'quantity'   => ':current + :new',
-        'updated_at' => 'NOW()',
-    ]
-);
-```
-
-`updateColumns` maps **column => expression**. A plain list — `['cost', 'quantity']`,
-the shape Laravel's `upsert()` takes — is refused with a message showing the corrected
-call; pass `[]` or `null` to ignore conflicts entirely (`DO NOTHING` / `INSERT IGNORE`).
-
----
-
-## Error Handling
-
-All failures throw `CDOException`, which wraps the original `PDOException` as
-its `$previous` cause (preserving SQLSTATE code and driver message):
-
-```php
-use Flytachi\Winter\Cdo\Connection\CDOException;
-
-try {
-    $cdo->insert('users', $data);
-} catch (CDOException $e) {
-    $sqlstate = $e->getPrevious()?->getCode();  // e.g. "23505" (PG unique violation)
-    // handle or re-throw
-}
-```
+Every operator with the SQL it emits:
+[Qb operators](https://winterframe.net/packages/cdo/qb-operators).
 
 ---
 
 ## Documentation
 
-Full reference documentation is at **https://winterframe.net/packages/cdo**
+The user-facing documentation lives at **[winterframe.net/packages/cdo](https://winterframe.net/packages/cdo)**
+(the link picks your language; RU and EN are both complete).
 
-Local docs in [`docs/`](docs/):
+**Start here**
 
-| File | Topic |
-|------|-------|
-| [00-overview.md](docs/00-overview.md) | How the pieces fit together |
-| [01-configuration.md](docs/01-configuration.md) | Config classes, inline Call classes |
-| [02-connection-pool.md](docs/02-connection-pool.md) | ConnectionPool, health checks |
-| [03-cdo.md](docs/03-cdo.md) | All CDO DML methods |
-| [04-cdo-statement.md](docs/04-cdo-statement.md) | Type binding, object serialisation |
-| [05-exceptions.md](docs/05-exceptions.md) | CDOException, SQLSTATE reference |
-| [06-cdobind.md](docs/06-cdobind.md) | CDOBind — named parameters |
-| [07-comparison-operators.md](docs/07-comparison-operators.md) | eq, neq, gt, gte, lt, lte, nsEq |
-| [08-null-checks.md](docs/08-null-checks.md) | isNull, isNotNull |
-| [09-set-operators.md](docs/09-set-operators.md) | in, notIn |
-| [10-pattern-matching.md](docs/10-pattern-matching.md) | like, notLike |
-| [11-range-operators.md](docs/11-range-operators.md) | between, betweenBy, notBetween, notBetweenBy |
-| [12-logical-operators.md](docs/12-logical-operators.md) | and, or, xor, clip |
-| [13-mutable-methods.md](docs/13-mutable-methods.md) | addAnd, addOr, addXor |
-| [14-case-expression.md](docs/14-case-expression.md) | CASE WHEN … END |
-| [15-special.md](docs/15-special.md) | raw, empty |
-| [16-advanced-examples.md](docs/16-advanced-examples.md) | Real-world combinations |
+| Page | What it answers |
+|------|-----------------|
+| [Introduction](https://winterframe.net/packages/cdo/intro) | What CDO is, and where it sits next to plain PDO |
+| [Installation](https://winterframe.net/packages/cdo/installation) | Requirements, install, driver extensions |
+| [Quick start](https://winterframe.net/packages/cdo/quickstart) | Config, connection, first write |
+| [Mental model](https://winterframe.net/packages/cdo/mental-model) | How config, pool, CDO and Qb relate |
+
+**Guides**
+
+| Page | What it answers |
+|------|-----------------|
+| [Inserting records](https://winterframe.net/packages/cdo/inserting-records) | Single rows, returned ids, batches |
+| [Updating and deleting](https://winterframe.net/packages/cdo/updating-and-deleting) | Conditions, affected rows, staying safe |
+| [Upserts](https://winterframe.net/packages/cdo/upserts) | Conflict columns and what gets updated |
+| [Building conditions](https://winterframe.net/packages/cdo/building-conditions) | Composing `Qb`, optional filters, grouping |
+| [Logging and diagnostics](https://winterframe.net/packages/cdo/logging-and-diagnostics) | Seeing the SQL, the bindings and the timing |
+
+**Reference**
+
+| Page | What it answers |
+|------|-----------------|
+| [CDO API](https://winterframe.net/packages/cdo/cdo-api) | Every method, its arguments and its return value |
+| [Qb operators](https://winterframe.net/packages/cdo/qb-operators) | All operators with the SQL they emit |
+| [Configuration](https://winterframe.net/packages/cdo/configuration) | Config classes, inline calls, driver options |
+| [Upsert placeholders](https://winterframe.net/packages/cdo/upsert-placeholders) | `:new`, `:current`, and expressions between them |
+| [Exceptions](https://winterframe.net/packages/cdo/exceptions) | What is thrown, and which SQLSTATE means what |
+
+**Deep dive**
+
+| Page | What it answers |
+|------|-----------------|
+| [Batches and chunking](https://winterframe.net/packages/cdo/batch-and-chunking) | Memory, partial failure, choosing a chunk size |
+| [Parameter binding](https://winterframe.net/packages/cdo/parameter-binding) | How a PHP value becomes a bound parameter |
+| [Driver detection](https://winterframe.net/packages/cdo/driver-detection) | What changes per driver, and how it is decided |
+
+Classes in this package carry an `@link` to their page, so the same documentation is one
+click away from your IDE.
 
 ---
 
-## Contributing & Security
+## Contributing
+
+Internal technical notes — exact contracts, the SQL each operator emits, and the
+reasoning behind decisions that are not obvious from the code — live in
+[`docs/`](docs/README.md). Read that before changing generated SQL.
+
+```bash
+composer test        # phpunit
+composer test-detail # phpunit --testdox
+composer cs-check    # phpcs
+composer cs-fix      # phpcbf
+```
 
 - Changes and upgrade notes: [CHANGELOG.md](CHANGELOG.md)
 - How to contribute (setup, tests, coding standard): [CONTRIBUTING.md](CONTRIBUTING.md)

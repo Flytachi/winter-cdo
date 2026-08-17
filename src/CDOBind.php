@@ -30,6 +30,8 @@ namespace Flytachi\Winter\Cdo;
  *
  * @package Flytachi\Winter\Cdo
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/parameter-binding How a placeholder carries its value to PDO
  */
 readonly class CDOBind
 {

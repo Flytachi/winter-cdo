@@ -18,6 +18,8 @@ use Psr\Log\LoggerInterface;
  * {@see ConnectionPool} to obtain a shared {@see CDO} instance.
  *
  * @package Flytachi\Winter\Cdo\Config\Common
+ *
+ * @link https://winterframe.net/packages/cdo/configuration The contract every database config satisfies
  */
 interface DbConfigInterface
 {

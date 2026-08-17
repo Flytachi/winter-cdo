@@ -28,6 +28,8 @@ use Flytachi\Winter\Cdo\Config\Common\BaseDbConfig;
  *
  * @package Flytachi\Winter\Cdo\Config\Call
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/configuration Inline PostgreSQL config
  */
 final class PgDbCall extends BaseDbConfig
 {

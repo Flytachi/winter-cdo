@@ -45,30 +45,41 @@ Qb::notIn('country_code', ['XX', 'ZZ'])
 
 ## Empty array behaviour
 
-Both `in` and `notIn` return an **empty `Qb`** when the array is empty.  
-An empty `Qb` is silently ignored by all logical operators (`and`, `or`, etc.),
-so the surrounding condition is not broken.
+Both `in` and `notIn` **throw** on an empty array:
 
 ```php
-$allowedIds = [];  // e.g. came from an empty database query
+Qb::in('id', []);
+// InvalidArgumentException: Values cannot be empty for IN condition
 
-$condition = Qb::and(
-    Qb::eq('active', true),
-    Qb::in('id', $allowedIds),  // array is empty → skipped
-);
-
-// SQL:  active IS TRUE
-// (no broken "active IS TRUE AND id IN ()" syntax)
+Qb::notIn('id', []);
+// InvalidArgumentException: Values cannot be empty for NOT IN condition
 ```
 
-This means you can pass dynamic lists to `in` / `notIn` **without a pre-check**:
+Refusing is the safe answer, because there is no harmless one. `col IN ()` is not
+valid SQL, so the alternatives would be to drop the condition or to make it always
+false — and dropping it is a hole: an empty allow-list would stop restricting
+anything and every row would pass. A list that came back empty is a decision the
+caller has to make deliberately, so the builder makes it explicit instead of
+guessing.
+
+Guard dynamic lists at the call site. Logical operators skip `null`, which makes the
+guard a one-liner:
 
 ```php
-// ✅ Safe — no need to guard with if (count($ids) > 0):
+$tagIds = [];   // e.g. came back empty from a query
+
 Qb::and(
     Qb::eq('published', true),
-    Qb::in('tag_id', $tagIds),
-)
+    $tagIds ? Qb::in('tag_id', $tagIds) : null,   // no tags → no condition
+);
+// SQL:  published IS TRUE
+```
+
+When an empty list should instead match *nothing*, say so explicitly — that is a
+different intent and deserves to be visible:
+
+```php
+$tagIds ? Qb::in('tag_id', $tagIds) : Qb::raw('1 = 0')
 ```
 
 ---
@@ -102,8 +113,8 @@ function buildProductFilter(array $categoryIds, array $excludedBrands): Qb
 {
     return Qb::and(
         Qb::eq('is_published', true),
-        Qb::in('category_id', $categoryIds),        // safe even if empty
-        Qb::notIn('brand_id', $excludedBrands),     // safe even if empty
+        $categoryIds    ? Qb::in('category_id', $categoryIds)     : null,
+        $excludedBrands ? Qb::notIn('brand_id', $excludedBrands)  : null,
     );
 }
 ```

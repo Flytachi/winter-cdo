@@ -29,6 +29,8 @@ namespace Flytachi\Winter\Cdo\Connection;
  *
  * @package Flytachi\Winter\Cdo\Connection
  * @author  Flytachi
+ *
+ * @link https://winterframe.net/packages/cdo/exceptions What is thrown, and what it carries
  */
 class CDOException extends \RuntimeException
 {
