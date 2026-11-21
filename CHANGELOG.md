@@ -11,6 +11,22 @@ for their history.
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-11-21
+
+### Added
+
+- **PostgreSQL: a silent network no longer holds a query for minutes.** `PgDbConfig` and
+  `PgDbCall` append libpq's `tcp_user_timeout=10000` to the DSN — `$tcpUserTimeout`
+  (milliseconds; `0` leaves it out). A connection dropped without a reset — a NAT or a
+  firewall that forgot it, a server gone off the network — held a query written into it until
+  the operating system gave up, about fifteen minutes on Linux, and nothing in PHP interrupts
+  that wait: checked against a live server under Swoole, neither a coroutine's cancel nor
+  Swoole's socket timeouts reach a `pdo_pgsql` query. Now the OS drops the connection after
+  10 s of unacknowledged data and the query fails; a pool then replaces the connection. A long
+  query is not affected — the server acknowledges it at once. Linux only (Docker included);
+  elsewhere libpq ignores the key. MySQL has no counterpart in its driver:
+  `mysqlnd.net_read_timeout` would cut long queries too, so nothing is set there.
+
 ## [4.0.0] - 2026-08-05
 
 Batch writes no longer hold the whole job in memory, and the two batch methods

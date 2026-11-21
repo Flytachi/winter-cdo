@@ -43,6 +43,9 @@ final class PgDbCall extends BaseDbConfig
      * @param string|null $charset  Optional client encoding appended to the DSN (e.g. `'UTF8'`).
      * @param string      $sslmode  SSL mode in the DSN (default: `'disable'` — safe for
      *                              Swoole's non-blocking pgsql socket; set `''` to omit).
+     * @param int         $tcpUserTimeout Milliseconds sent data may go unacknowledged before
+     *                              the OS drops the connection (libpq `tcp_user_timeout`,
+     *                              default `10000`; `0` — omitted). See {@see \Flytachi\Winter\Cdo\Config\PgDbConfig}.
      */
     public function __construct(
         public string $host = 'localhost',
@@ -53,6 +56,7 @@ final class PgDbCall extends BaseDbConfig
         public string $schema = 'public',
         public ?string $charset = null,
         public string $sslmode = 'disable',
+        public int $tcpUserTimeout = 10000,
     ) {
         parent::__construct();
     }
@@ -65,6 +69,9 @@ final class PgDbCall extends BaseDbConfig
         }
         if ($this->charset !== null) {
             $dns .= "options='--client_encoding=" . $this->charset . "';";
+        }
+        if ($this->tcpUserTimeout > 0) {
+            $dns .= 'tcp_user_timeout=' . $this->tcpUserTimeout . ';';
         }
         return $dns;
     }

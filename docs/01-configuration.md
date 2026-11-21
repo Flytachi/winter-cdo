@@ -103,6 +103,14 @@ class AppPgDb extends PgDbConfig
 | `$password` | `''` |
 | `$schema` | `'public'` |
 | `$charset` | `null` |
+| `$sslmode` | `'disable'` |
+| `$tcpUserTimeout` | `10000` (ms; `0` — not in the DSN) |
+
+`$tcpUserTimeout` appends libpq's `tcp_user_timeout`: when what was sent goes unacknowledged
+that long, the operating system drops the connection and the query fails. Without it a socket
+dropped in silence — a NAT or a firewall that forgot it — holds a query until the OS gives up,
+about fifteen minutes on Linux, and nothing in PHP can interrupt that wait. A long query is not
+affected: the server acknowledges it at once. Linux only; elsewhere libpq ignores it.
 
 ### SQLite — `SqliteDbConfig`
 

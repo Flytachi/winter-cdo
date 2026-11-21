@@ -81,6 +81,36 @@ class PgDbCallTest extends TestCase
 
     // ─── getSchema ───────────────────────────────────────────────────────
 
+    public function testGetDnsBoundsAWaitOnASilentNetworkByDefault(): void
+    {
+        // A socket dropped in silence otherwise holds a query until the OS gives up: minutes.
+        $this->assertStringContainsString('tcp_user_timeout=10000;', (new PgDbCall())->getDns());
+    }
+
+    public function testGetDnsTcpUserTimeoutCanBeChangedOrOmitted(): void
+    {
+        $this->assertStringContainsString('tcp_user_timeout=3000;', (new PgDbCall(tcpUserTimeout: 3000))->getDns());
+        $this->assertStringNotContainsString('tcp_user_timeout', (new PgDbCall(tcpUserTimeout: 0))->getDns());
+    }
+
+    public function testThePgDbConfigBaseBoundsItToo(): void
+    {
+        $config = new class extends \Flytachi\Winter\Cdo\Config\PgDbConfig {
+            public function setUp(): void
+            {
+            }
+        };
+        $this->assertStringContainsString('tcp_user_timeout=10000;', $config->getDns());
+
+        $off = new class extends \Flytachi\Winter\Cdo\Config\PgDbConfig {
+            protected int $tcpUserTimeout = 0;
+            public function setUp(): void
+            {
+            }
+        };
+        $this->assertStringNotContainsString('tcp_user_timeout', $off->getDns());
+    }
+
     public function testGetSchemaReturnsDefault(): void
     {
         $this->assertSame('public', (new PgDbCall())->getSchema());

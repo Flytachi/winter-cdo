@@ -60,6 +60,16 @@ abstract class PgDbConfig extends BaseDbConfig
      * that mandates TLS; set `''` to omit the key entirely (libpq default `prefer`).
      */
     protected string $sslmode = 'disable';
+    /**
+     * Milliseconds sent data may go unacknowledged before the operating system drops
+     * the connection (libpq `tcp_user_timeout`). A socket dropped in silence — a NAT or
+     * a firewall that forgot it, a server gone off the network — gets no reset, and a
+     * query written into it waits until the OS gives up: about fifteen minutes on Linux.
+     * Nothing in PHP interrupts that wait, not even a coroutine's cancel. With this, the
+     * query fails after the timeout instead. `0` — omitted, the OS decides. Linux only:
+     * elsewhere libpq ignores it.
+     */
+    protected int $tcpUserTimeout = 10000;
 
     public function getDns(): string
     {
@@ -69,6 +79,9 @@ abstract class PgDbConfig extends BaseDbConfig
         }
         if ($this->charset !== null) {
             $dns .= "options='--client_encoding=" . $this->charset . "';";
+        }
+        if ($this->tcpUserTimeout > 0) {
+            $dns .= 'tcp_user_timeout=' . $this->tcpUserTimeout . ';';
         }
         return $dns;
     }
