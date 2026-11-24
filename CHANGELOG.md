@@ -11,6 +11,16 @@ for their history.
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-11-24
+
+### Changed
+
+- ⚠️ **SQLite: foreign keys are checked.** A connection runs `PRAGMA foreign_keys = ON` — SQLite
+  keeps them off unless asked, so a `REFERENCES` declared was never checked: a row pointing at
+  no row went in, `ON DELETE CASCADE` / `RESTRICT` did nothing. Every other server checks them.
+  Code that wrote such rows fails now (`FOREIGN KEY constraint failed`), and deleting a parent
+  deletes or refuses as its key says. `PRAGMA foreign_keys = OFF` on the connection turns it off.
+
 ## [4.1.0] - 2026-11-21
 
 ### Added
@@ -140,6 +150,8 @@ a generator instead of an array.
   the one propagated. This matters when a transaction was ended out-of-band
   (e.g. a DDL statement causing an implicit commit on MySQL/MariaDB/Oracle).
 
-[Unreleased]: https://github.com/flytachi/winter-cdo/compare/v4.0.0...HEAD
+[Unreleased]: https://github.com/flytachi/winter-cdo/compare/v4.2.0...HEAD
+[4.2.0]: https://github.com/flytachi/winter-cdo/compare/v4.1.0...v4.2.0
+[4.1.0]: https://github.com/flytachi/winter-cdo/compare/v4.0.0...v4.1.0
 [4.0.0]: https://github.com/flytachi/winter-cdo/releases/tag/v4.0.0
 [3.2.0]: https://github.com/flytachi/winter-cdo/releases/tag/v3.2.0

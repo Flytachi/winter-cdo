@@ -41,6 +41,21 @@ class SqliteIntegrationTest extends TestCase
         );
     }
 
+    public function testForeignKeysAreChecked(): void
+    {
+        $this->assertSame(1, (int) $this->cdo->query('PRAGMA foreign_keys')->fetchColumn());
+        $this->cdo->exec('CREATE TABLE shelf (id INTEGER PRIMARY KEY)');
+        $this->cdo->exec('CREATE TABLE box (id INTEGER PRIMARY KEY, shelf_id INTEGER REFERENCES shelf(id) ON DELETE CASCADE)');
+        $this->cdo->exec('INSERT INTO shelf (id) VALUES (1)');
+        $this->cdo->exec('INSERT INTO box (shelf_id) VALUES (1)');
+
+        $this->cdo->exec('DELETE FROM shelf WHERE id = 1');
+        $this->assertSame(0, (int) $this->cdo->query('SELECT count(*) FROM box')->fetchColumn(), 'ON DELETE CASCADE');
+
+        $this->expectException(\PDOException::class);
+        $this->cdo->exec('INSERT INTO box (shelf_id) VALUES (99)');
+    }
+
     public function testDriverIsSqlite(): void
     {
         $this->assertSame('sqlite', $this->cdo->getDriverName());

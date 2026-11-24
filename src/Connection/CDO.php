@@ -796,6 +796,13 @@ class CDO extends PDO
 
         $this->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
         $this->applyDatabaseTimezone($driver, date_default_timezone_get());
+
+        // SQLite keeps foreign keys off unless a connection asks: a REFERENCES declared was
+        // never checked, ON DELETE CASCADE / RESTRICT did nothing, and a row pointing at no
+        // row went in. Every other server checks them; so does SQLite now.
+        if ($driver === 'sqlite') {
+            $this->exec('PRAGMA foreign_keys = ON');
+        }
     }
 
     /**
